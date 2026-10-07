@@ -567,7 +567,9 @@ class SessionManager:
         into a permanent ``503 capacity_exceeded`` even though nothing is
         running.
         """
-        dead = [session_id for session_id, runner in self._sessions.items() if not runner.is_alive()]
+        dead = [
+            session_id for session_id, runner in self._sessions.items() if not runner.is_alive()
+        ]
         for session_id in dead:
             runner = self._sessions.pop(session_id, None)
             if runner is None:  # pragma: no cover - defensive
