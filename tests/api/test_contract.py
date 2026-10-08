@@ -334,6 +334,56 @@ class TestProblemDocuments:
         assert response.status_code == 413
         assert problem(response)["code"] == "payload_too_large"
 
+    def test_a_chunked_body_is_capped_too(self, client: Any, auth: dict[str, str]) -> None:
+        """No Content-Length means the header check never sees the body.
+
+        An anonymous client streaming a chunked body could otherwise push data
+        past the limit indefinitely; the cap has to apply to the bytes as they
+        are read.
+        """
+        client.app.state.settings_max_body = 4096
+
+        def chunks() -> Any:
+            for _ in range(64):
+                yield b"x" * 1024
+
+        response = client.post(
+            "/api/v1/sites",
+            content=chunks(),
+            headers={**auth, "Content-Type": "application/json"},
+        )
+        assert response.status_code == 413, response.text
+        assert problem(response)["code"] == "payload_too_large"
+        # The limit is on size, not on chunking: the same body with a length
+        # header is refused before it is read.
+        declared = client.post(
+            "/api/v1/sites",
+            content=b"x" * 8192,
+            headers={**auth, "Content-Type": "application/json"},
+        )
+        assert declared.status_code == 413
+
+    def test_a_hostile_request_id_is_replaced_not_echoed(self, client: Any) -> None:
+        """A caller-supplied id reaches logs and a response header as-is.
+
+        A newline in it forges log lines, and an unbounded value makes the
+        header a free injection channel — so the input is accepted only in the
+        shape we mint (and what tracing proxies send), anything else is dropped
+        for a generated id.
+        """
+        hostile = "line-one\nforged-entry: value"
+        response = client.get("/api/v1/healthz", headers={"X-Request-Id": hostile})
+        echoed = response.headers["x-request-id"]
+        assert hostile not in echoed
+        assert "\n" not in echoed
+        assert "\r" not in echoed
+        assert len(echoed) <= 128
+
+    def test_a_tracing_style_request_id_survives(self, client: Any) -> None:
+        trace = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        response = client.get("/api/v1/healthz", headers={"X-Request-Id": trace})
+        assert response.headers["x-request-id"] == trace
+
     def test_an_unknown_route_is_a_problem_document(self, client: Any) -> None:
         response = client.get("/api/v1/nope")
         assert response.status_code == 404
