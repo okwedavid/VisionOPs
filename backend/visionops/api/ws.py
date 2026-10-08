@@ -90,9 +90,7 @@ async def _authorise(websocket: WebSocket, container: Any) -> Any:
     if permission is None:
         return principal
     if not isinstance(principal, ResolvedPrincipal) or not principal.can(permission):
-        logger.warning(
-            "refusing a websocket: path=%s requires %r", websocket.url.path, permission
-        )
+        logger.warning("refusing a websocket: path=%s requires %r", websocket.url.path, permission)
         return FORBIDDEN
     return principal
 

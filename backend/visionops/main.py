@@ -152,6 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else None
         )
         max_bytes = limit or _max_body_bytes(request)
+
         def too_large() -> Response:
             return from_app_error(PayloadTooLarge(max_bytes), instance=request.url.path)
 

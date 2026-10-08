@@ -115,9 +115,7 @@ def build_container(
     hub = RealtimeHub()
     audit = AuditService(session_factory)
     events = EventService(session_factory)
-    cameras = CameraService(
-        session_factory, secret_box=secret_box, media_root=settings.media_root
-    )
+    cameras = CameraService(session_factory, secret_box=secret_box, media_root=settings.media_root)
     zones = ZoneService(session_factory)
     model, model_info, model_error = build_model(settings)
 
