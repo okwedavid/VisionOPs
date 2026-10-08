@@ -1,0 +1,20 @@
+[Unit]
+Description=VisionOps backup (database + snapshots)
+Documentation=file:/opt/visionops/app/docs/DEPLOYMENT.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=visionops
+Group=visionops
+WorkingDirectory=/opt/visionops/app
+EnvironmentFile=/etc/visionops.env
+Environment=VISIONOPS_DATA_DIR=/var/lib/visionops/data
+Environment=VISIONOPS_SNAPSHOT_DIR=/var/lib/visionops/snapshots
+Environment=VISIONOPS_BACKUP_DIR=/var/backups/visionops
+ExecStart=/opt/visionops/app/scripts/backup.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/visionops /var/backups/visionops

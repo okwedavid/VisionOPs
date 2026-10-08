@@ -1,0 +1,46 @@
+[Unit]
+Description=VisionOps API and vision pipeline
+Documentation=file:/opt/visionops/app/docs/DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=visionops
+Group=visionops
+WorkingDirectory=/opt/visionops/app
+EnvironmentFile=/etc/visionops.env
+Environment=VISIONOPS_HOST=127.0.0.1
+Environment=VISIONOPS_PORT=8000
+Environment=VISIONOPS_DATA_DIR=/var/lib/visionops/data
+Environment=VISIONOPS_SNAPSHOT_DIR=/var/lib/visionops/snapshots
+Environment=VISIONOPS_MEDIA_ROOT=/var/lib/visionops/media
+Environment=VISIONOPS_MODEL_PATH=/var/lib/visionops/models/yolo11n.onnx
+Environment=VISIONOPS_LOG_FILE=/var/lib/visionops/logs/visionops.log
+ExecStart=/opt/visionops/app/.venv/bin/visionops serve
+Restart=on-failure
+RestartSec=5
+# Give sessions time to finish the current frame and flush the event queue.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Hardening. Linux-only, no privileges, read-only filesystem apart from the
+# data/log directories. PrivateDevices is intentionally left off so local
+# (/dev/video*) capture still works; RTSP/IP cameras need no device access.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/lib/visionops
+
+[Install]
+WantedBy=multi-user.target

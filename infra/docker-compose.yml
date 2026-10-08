@@ -1,0 +1,73 @@
+# VisionOps single-node deployment (Docker Compose).
+#
+#   cp .env.example .env && $EDITOR .env
+#   docker compose -f infra/docker-compose.yml up -d --build
+#
+# Two services: `api` (FastAPI + vision pipeline, non-root, healthchecked,
+# `data` volume) and `web` (built SPA served by nginx, which proxies `/api` and
+# the `/ws` upgrade to the API). SQLite lives on the `visionops-data` volume by
+# default; uncomment the `postgres` service for a heavier deployment and point
+# `VISIONOPS_DATABASE_URL` at it.
+
+name: visionops
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+    image: visionops-api:local
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      VISIONOPS_HOST: 0.0.0.0
+      VISIONOPS_PORT: "8000"
+    volumes:
+      - visionops-data:/data
+    # Model weights are fetched into the volume on first run (or mounted in).
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/healthz', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+    image: visionops-web:local
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      # Put a TLS terminator in front, or map 443 here with a cert-mounted config.
+
+  # Heavy deployments (> ~1M events, or multiple writers): enable this and set
+  # VISIONOPS_DATABASE_URL=postgresql+psycopg://visionops:visionops@postgres:5432/visionops
+  #
+  # postgres:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: visionops
+  #     POSTGRES_PASSWORD: visionops
+  #     POSTGRES_DB: visionops
+  #   volumes:
+  #     - visionops-pg:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U visionops"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  visionops-data:
+  # visionops-pg:
