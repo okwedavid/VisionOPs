@@ -19,8 +19,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..config import Settings
 from ..core.auth import ApiKeyProvider, extract_credentials, rate_limit_key
 from ..core.errors import Forbidden, RateLimited, Unauthorized
+from ..core.logging import current_request_id
 from ..core.ratelimit import RateLimiter
-from ..core.security import SecretBox
+from ..core.security import SecretBox, parse_api_key
 from ..db.engine import build_engine, build_session_factory
 from ..db.scoped import Principal
 from ..observability.metrics import METRIC_AUTH_FAILURES, METRIC_RATE_LIMITED, registry
@@ -158,7 +159,7 @@ def build_container(
         engine=engine,
         session_factory=session_factory,
         hub=hub,
-        auth=ApiKeyProvider(),
+        auth=ApiKeyProvider(session_factory=session_factory),
         rate_limiter=RateLimiter(settings.rate_limit_rps),
         # Repeated *failed* keys are throttled harder than normal traffic, but an
         # operator with a typo must still get a clear 401 rather than a 429 on
@@ -284,11 +285,19 @@ async def get_principal(
 ) -> Principal:
     """Authenticate, rate-limit and audit the caller.
 
-    Order matters: the rate limit is checked before any database work, and both
-    failure paths are audited so credential probing is visible.
+    Order matters: the rate limit is checked before any database work, and the
+    attributable failure paths are audited so credential probing is visible.
     """
     credentials = extract_credentials(request)
     if not credentials:
+        # No credential means no key to attribute the attempt to, so this is
+        # throttled per source address instead of per key: an unauthenticated
+        # flood (or a spray of distinct made-up keys) has to hit a ceiling
+        # somewhere, and a per-key bucket cannot see it.
+        source = client_ip(request, container.settings.trusted_proxies) or "unknown"
+        if not container.auth_limiter.allow(f"ip:{source}"):
+            registry.counter(METRIC_RATE_LIMITED, 1, endpoint="anonymous")
+            raise RateLimited(container.auth_limiter.retry_after(f"ip:{source}"))
         raise Unauthorized()
     fingerprint = rate_limit_key(credentials)
     if not container.rate_limiter.allow(fingerprint):
@@ -298,8 +307,22 @@ async def get_principal(
     principal = await container.auth.resolve(credentials, session)
     if principal is None:
         registry.counter(METRIC_AUTH_FAILURES, 1, reason="invalid_key")
+        source = client_ip(request, container.settings.trusted_proxies) or "unknown"
+        # Even if the credential is bogus, a spray of different keys from the
+        # same source is an unauthenticated flood: throttle per source address.
+        if not container.auth_limiter.allow(f"ip:{source}"):
+            registry.counter(METRIC_RATE_LIMITED, 1, endpoint="anonymous")
+            raise RateLimited(container.auth_limiter.retry_after(f"ip:{source}"))
         if not container.auth_limiter.allow(fingerprint):
+            registry.counter(METRIC_RATE_LIMITED, 1, endpoint=request.url.path)
             raise RateLimited(container.auth_limiter.retry_after(fingerprint))
+        _audit_rejection(
+            container,
+            request,
+            credentials,
+            action="auth.key_rejected",
+            detail={"reason": "invalid_key"},
+        )
         raise Unauthorized()
 
     permission = required_permission(request.url.path, request.method)
@@ -313,9 +336,66 @@ async def get_principal(
         raise Forbidden("this endpoint has no permission mapping and is refused by default")
     if permission is not None and not principal.can(permission):
         registry.counter(METRIC_AUTH_FAILURES, 1, reason="insufficient_permission")
+        _audit_rejection(
+            container,
+            request,
+            credentials,
+            action="auth.permission_denied",
+            detail={"reason": "insufficient_permission", "required": permission},
+        )
         # 403, not 401: the credential is valid, the grant is not.
         raise Forbidden(f"this API key lacks the {permission!r} permission")
     return principal
+
+
+def _audit_rejection(
+    container: Any,
+    request: Request,
+    credentials: str,
+    *,
+    action: str,
+    detail: dict[str, Any],
+) -> None:
+    """Record a rejected credential, when it can be attributed to an organisation.
+
+    ``audit_logs.organization_id`` is not nullable, so an attempt with a key
+    prefix that matches no row cannot be written at all — there is no tenant to
+    file it under. Those are counted and logged instead; every attempt against a
+    *known* key (including a revoked one) is audited.
+    """
+    organization_id = None
+    resolver = getattr(container.auth, "organization_for", None)
+    if resolver is not None:
+        try:
+            organization_id = resolver(credentials)
+        except Exception:  # pragma: no cover - a lookup failure must not mask the 401
+            logger.debug("could not attribute a rejected credential", exc_info=True)
+    if organization_id is None:
+        logger.warning(
+            "rejected an unrecognised credential: action=%s path=%s method=%s",
+            action,
+            request.url.path,
+            request.method,
+        )
+        return
+    parsed = parse_api_key(credentials)
+    # ``vo_<id>`` is the public half of a key: it is listed by ``GET /apikeys``
+    # and is what an operator needs to find the offending credential. The
+    # secret half never leaves this function.
+    key_prefix = f"vo_{parsed[0]}" if parsed else "unknown"
+    container.audit.record(
+        organization_id,
+        action=action,
+        actor_type="api_key",
+        actor_id=key_prefix,
+        target_type="request",
+        target_id=request.url.path[:64],
+        outcome="denied",
+        ip=client_ip(request, container.settings.trusted_proxies),
+        user_agent=request.headers.get("user-agent"),
+        request_id=current_request_id(),
+        detail={**detail, "method": request.method},
+    )
 
 
 PrincipalDep = Annotated[Principal, Depends(get_principal)]

@@ -407,6 +407,31 @@ class TestRateLimiting:
         limiter.prune(max_age_seconds=-1.0)
         assert limiter.allow("k") is True
 
+    def test_allow_prunes_without_being_asked(self) -> None:
+        """The sweep only ever ran when someone called ``prune()`` — nobody did.
+
+        Buckets are created for every key the limiter is shown, so without the
+        automatic sweep an unauthenticated client can grow the map without
+        bound. The clock is moved by hand rather than slept through.
+        """
+        import time as _time
+
+        limiter = RateLimiter(rate_per_second=1.0, burst=1)
+        for i in range(50):
+            limiter.allow(f"noise-{i}")
+        assert len(limiter._buckets) == 50
+
+        stale = _time.monotonic() - (RateLimiter.IDLE_BUCKET_SECONDS + 1.0)
+        for bucket in limiter._buckets.values():
+            bucket.updated_at = stale
+        limiter._last_prune = _time.monotonic() - (RateLimiter.PRUNE_INTERVAL_SECONDS + 1.0)
+
+        limiter.allow("live")
+        assert list(limiter._buckets) == ["live"]
+        # A busy interval must not sweep on every request: the sweep is the
+        # thing being bounded, not just the map.
+        assert limiter._last_prune == pytest.approx(_time.monotonic(), abs=1.0)
+
 
 # ---------------------------------------------------------------------------
 # Route authorisation
