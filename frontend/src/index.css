@@ -1,0 +1,143 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Dark, dense and calm: operators watch these screens for
+ * hours, so surfaces are low-saturation and state colours are reserved for
+ * state. Colour is never the only signal — badges carry text too.
+ */
+@theme {
+  --color-bg: #0b1220;
+  --color-surface: #111a2b;
+  --color-surface-2: #18243a;
+  --color-border: #24324d;
+  --color-border-strong: #33456a;
+
+  --color-ink: #e6edf7;
+  --color-ink-2: #9fb0c9;
+  --color-ink-3: #6b7c99;
+
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-crit: #ef4444;
+  --color-info: #3b82f6;
+  --color-accent: #38bdf8;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals everywhere counts, latencies and timestamps appear, so
+     columns do not jitter as values change. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-strong);
+  }
+}
+
+/*
+ * Component classes. Tailwind v4 does not allow `@apply` of a class defined in
+ * `@layer components`, so the shared declarations are repeated per rule. That
+ * is explicit and compiles everywhere; the duplication is deliberate.
+ */
+@layer components {
+  .card {
+    @apply rounded-lg border border-border bg-surface;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-ink
+      placeholder:text-ink-3 focus:border-accent focus:outline-none;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50
+      bg-accent text-bg hover:bg-accent/85;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50
+      border border-border bg-surface-2 text-ink hover:border-border-strong hover:bg-border/40;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50
+      border border-crit/50 bg-crit/10 text-crit hover:bg-crit/20;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-50
+      text-ink-2 hover:bg-surface-2 hover:text-ink;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium
+      uppercase tracking-wide;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-2;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded bg-surface-2;
+  }
+}
+
+/* Respect the operating-system preference: motion is decoration, never
+   information. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
