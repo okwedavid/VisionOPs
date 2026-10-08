@@ -1,0 +1,141 @@
+[project]
+name = "visionops"
+version = "0.1.0"
+description = "VisionOps — production-grade computer-vision operations platform. V0.1: restricted-zone intelligence."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "VisionOps contributors" }]
+keywords = ["computer-vision", "object-detection", "tracking", "analytics", "edge-ai"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.32,<1.0",
+  "pydantic>=2.9,<3.0",
+  "pydantic-settings>=2.6,<3.0",
+  "sqlalchemy>=2.0.36,<2.1",
+  "alembic>=1.14,<2.0",
+  "numpy>=1.26,<3.0",
+  "opencv-python-headless>=4.10,<5.0",
+  "onnxruntime>=1.19,<2.0",
+  # AES-256-GCM envelope encryption for camera credentials (ADR-017).
+  "cryptography>=43.0,<47.0",
+]
+
+[project.optional-dependencies]
+# Model training / export / evaluation tooling. Never imported by the runtime.
+ml = ["ultralytics>=8.3,<9.0", "onnx>=1.17,<2.0"]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<7.0",
+  "httpx>=0.27,<1.0",
+  "ruff>=0.8,<1.0",
+  "mypy>=1.13,<2.0",
+  "types-python-dateutil>=2.9",
+]
+
+[project.scripts]
+visionops = "visionops.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/okwedavid/VisionOPs"
+Documentation = "https://github.com/okwedavid/VisionOPs/tree/main/docs"
+Issues = "https://github.com/okwedavid/VisionOPs/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/visionops"]
+
+# --------------------------------------------------------------------------
+# Tool configuration
+# --------------------------------------------------------------------------
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["backend", "tests"]
+extend-exclude = [".venv", "frontend", "samples"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "C4",   # comprehensions
+  "UP",   # pyupgrade
+  "N",    # pep8-naming
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+  "ASYNC",
+  "S",    # bandit
+  "T20",  # no print in library code
+]
+ignore = [
+  "S101",  # assert is fine (we use asserts for internal invariants + tests)
+  "B008",  # FastAPI Depends() in defaults is idiomatic
+  "RUF001", "RUF002", "RUF003",  # ambiguous unicode: we intentionally use → in docs strings
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "T20", "N"]
+"scripts/**" = ["S", "T20"]
+"**/migrations/**" = ["E501"]
+# The CLI's user-facing output *is* stdout; logging it would corrupt the UX.
+"backend/visionops/cli.py" = ["T201"]
+# Domain exceptions mirror the RFC 9457 problem titles they map to
+# (BadRequest, Unauthorized, ...), so the names are deliberate, not legacy.
+"backend/visionops/core/errors.py" = ["N818"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["visionops"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["backend/visionops"]
+strict = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+plugins = []
+# Third-party CV/ML stacks ship partial stubs; we type our own boundaries strictly
+# and treat these modules as Any at the edge.
+[[tool.mypy.overrides]]
+module = ["cv2.*", "onnxruntime.*", "numpy.*", "uvicorn.*", "alembic.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = [".", "backend"]
+addopts = "-ra --strict-markers --strict-config -m 'not model'"
+markers = [
+  "model: tests that require a real ONNX detection model (deselected by default)",
+  "e2e: end-to-end browser tests (require Playwright)",
+  "slow: longer-running tests",
+]
+filterwarnings = ["error::DeprecationWarning:visionops.*"]
+
+[tool.coverage.run]
+source = ["backend/visionops"]
+branch = true
+omit = ["*/migrations/*", "*/__main__.py"]
