@@ -56,10 +56,10 @@ Individual commands if you prefer no `make`:
 uv sync --extra dev
 npm --prefix frontend ci
 cp .env.example .env
-uv run visionops init            # creates data/, applies migrations, writes a key
-uv run visionops model fetch     # optional
-uv run uvicorn visionops.main:app --reload --port 8000     # terminal 1
-npm --prefix frontend run dev                               # terminal 2
+uv run visionops init                                  # creates data/, migrates, writes a key
+uv run visionops model                                 # optional: download the model
+uv run visionops serve --reload --port 8000            # terminal 1
+npm --prefix frontend run dev                          # terminal 2
 ```
 
 ---
@@ -199,7 +199,7 @@ The shipped config includes: TLS 1.2+, HSTS, `client_max_body_size` matching `VI
 sudo -u postgres createuser visionops --pwprompt
 sudo -u postgres createdb visionops --owner visionops
 # VISIONOPS_DATABASE_URL=postgresql+psycopg://visionops:…@127.0.0.1:5432/visionops
-sudo -u visionops uv run alembic -c alembic.ini upgrade head
+sudo -u visionops uv run visionops migrate
 ```
 
 Keep `synchronous_commit = on` for durability; enable provider at-rest encryption if the platform offers it (VisionOps does not implement its own database encryption).
@@ -287,13 +287,13 @@ Never: unbounded queues (they convert slowness into wrongness).
 | Situation | Action |
 | --- | --- |
 | Service down | `systemctl status visionops`; `journalctl -u visionops -n 200`; check the startup config summary and migration log |
-| Database migrations failed | `alembic current`; the service will not start with a bad schema; `alembic downgrade -1` then fix, or restore from backup |
+| Database migrations failed | `uv run visionops migrate` (prints the current revision); the service will not start with a bad schema; `uv run visionops migrate --downgrade <rev>` then fix, or restore from backup |
 | Disk nearly full | `uv run visionops prune --dry-run` then run; consider lowering `retention_days`; check `snapshot_dir` size |
 | Events stopped | §5 of `docs/OBSERVABILITY.md` (diagnosability recipes) |
-| Model missing/corrupt after a disk event | `uv run visionops model fetch` (or restore weights); `visionops model verify` prints the SHA-256 |
+| Model missing/corrupt after a disk event | `uv run visionops model` (or restore weights); `uv run visionops model --info` prints the SHA-256 |
 | Master key lost | Camera credentials are unrecoverable by design. Re-enter them per source. Events and history are unaffected |
 | API key leaked | `visionops key revoke <id>`, issue a new one, update clients, then audit `auth.key_rejected` |
-| Upgrade | New release → `uv sync --frozen` → `alembic upgrade head` → restart; rollback = previous tag + `alembic downgrade`; snapshot the DB first |
+| Upgrade | New release → `uv sync --frozen` → `uv run visionops migrate` → restart; rollback = previous tag + `uv run visionops migrate --downgrade <rev>`; snapshot the DB first |
 | Incident | Follow `docs/SECURITY_PRIVACY.md` §9; preserve the DB, audit log and logs before remediation |
 
 ### Versioning and upgrades

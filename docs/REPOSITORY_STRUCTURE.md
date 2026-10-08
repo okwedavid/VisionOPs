@@ -9,16 +9,16 @@
 ```mermaid
 flowchart TB
   ROOT["VisionOps/"]
-  ROOT --> DOCS["docs/            15 architecture & product documents"]
+  ROOT --> DOCS["docs/            16 architecture & product documents"]
   ROOT --> BE["backend/        Python: API + vision engine + services"]
   ROOT --> FE["frontend/       TypeScript: React operator UI"]
   ROOT --> TS["tests/          Python test suites (unit/integration/API/CV)"]
-  ROOT --> E2E["e2e/            Playwright browser end-to-end tests"]
+  ROOT --> E2E["frontend/e2e/   Playwright browser end-to-end tests"]
   ROOT --> INFRA["infra/        Dockerfiles, compose, nginx, systemd"]
-  ROOT --> SCRIPTS["scripts/     model fetch, fixture generation, benchmarks"]
+  ROOT --> SCRIPTS["scripts/     fixture generation, coverage gate, backups"]
   ROOT --> SAMPLES["samples/     synthetic fixture video + provenance"]
   ROOT --> CI[".github/       CI workflows, issue templates"]
-  ROOT --> CFG["Root config: pyproject.toml, Makefile, .env.example,<br/>.gitignore, .editorconfig, LICENSE"]
+  ROOT --> CFG["Root config: pyproject.toml, Makefile, .env.example,<br/>.gitignore, LICENSE"]
 
   DOCS -.->|"read first"| BE & FE & TS
 ```
@@ -37,16 +37,16 @@ flowchart TB
     MAIN["main.py            app factory + lifespan"]
     CLI["cli.py              operator CLI: serve/init/key/prune/bench/demo"]
     CFG["config.py           typed settings (pydantic-settings)"]
-    API["api/                routers: system, orgs, sites, cameras, zones, events"]
+    API["api/                routers: system, resources, zones, events, sessions"]
     SVC["services/           use-cases + orchestration"]
     VIS["vision/             CV core — no web, no ORM, no network"]
     ING["ingest/             VideoSource implementations"]
     RT["realtime/            WebSocket hub"]
-    DB["db/                  engine, session, scoped repos, migrations/"]
-    MODELS["models/           SQLAlchemy ORM entities"]
-    SCH["schemas/            Pydantic DTOs"]
-    CORE["core/              config, logging, metrics, errors, ids, security, auth, ratelimit"]
-    OBSV["observability/     metrics registry, health aggregation"]
+    DB["db/                  engine, scoped repos, migrations/"]
+    MODELS["models/entities.py SQLAlchemy ORM entities"]
+    SCH["schemas/dto.py      Pydantic DTOs"]
+    CORE["core/              logging, errors, ids, security, auth, ratelimit"]
+    OBSV["observability/     metrics registry"]
   end
   MAIN --> API
   API --> SVC
@@ -96,17 +96,16 @@ Hard rules:
 | `core/auth.py` | `Principal`, `AuthProvider` protocol, FastAPI dependency, permission checks | `require_permission()` |
 | `core/ratelimit.py` | In-process token bucket keyed by API key fingerprint | `RateLimiter` |
 | `api/deps.py` | DB session, principal, pagination, container wiring | `get_db()`, `get_principal()` |
-| `api/routers/*.py` | HTTP contract only | `system`, `cameras`, `zones`, `events`, `sites`, `orgs` |
+| `api/routers/*.py` | HTTP contract only | `system`, `resources`, `zones`, `events`, `sessions` |
 | `api/ws.py` | WebSocket endpoints: live state + browser frame ingest | `stream_router`, `ingest_router` |
 | `api/problems.py` | RFC 9457 problem+json builders | `problem()` |
-| `schemas/*.py` | Pydantic request/response models, one module per resource | `camera.py`, `zone.py`, `event.py`, … |
-| `models/*.py` | ORM entities | `organization.py`, `camera.py`, `zone.py`, `event.py`, … |
+| `schemas/dto.py` | Pydantic request/response models for every resource | `CameraOut`, `ZoneIn`, `EventOut`, … |
+| `models/entities.py` | ORM entities | `Organization`, `Camera`, `Zone`, `Event`, … |
 | `db/base.py` | Declarative base, naming conventions | — |
-| `db/engine.py` | Engine/sessionmaker, SQLite WAL + busy timeout, dialect setup | `build_engine()` |
-| `db/session.py` | Session context managers | `session_scope()` |
-| `db/scoped.py` | **The** org-scoped repository helpers — the tenant-isolation chokepoint | `scoped_query()` |
+| `db/engine.py` | Engine/sessionmaker, `session_scope()`, SQLite WAL + busy timeout, dialect setup | `build_engine()` |
+| `db/scoped.py` | **The** org-scoped repository helpers — the tenant-isolation chokepoint | `scoped()`, `list_scoped()` |
 | `db/migrations/` | Alembic environment + versions | `0001_initial.py` |
-| `services/camera_service.py` | Camera + source CRUD, credentials | `CameraService` |
+| `services/resource_service.py` | Camera/site/source CRUD, credentials | `CameraService` |
 | `services/zone_service.py` | Zone CRUD, geometry validation | `ZoneService` |
 | `services/session_service.py` | Session lifecycle, slot acquisition, session registry | `SessionService`, `SessionHandle` |
 | `services/event_service.py` | Event writes, queries, summary aggregation, export | `EventService` |
@@ -130,9 +129,7 @@ Hard rules:
 | `ingest/browser.py` | Browser-frame source driven by the WS ingest endpoint | `BrowserFrameSource` |
 | `ingest/factory.py` | Build a source from configuration | `build_source()` |
 | `realtime/hub.py` | Topic-based fan-out, per-client drop-oldest buffer, heartbeat | `RealtimeHub` |
-| `realtime/protocol.py` | WS message builders (state, event, error) | `state_message()` |
 | `observability/metrics.py` | Counter/Gauge/Histogram registry + Prometheus text exporter | `MetricsRegistry` |
-| `observability/health.py` | Health aggregation across source/model/pipeline/storage | `HealthSnapshot` |
 | `cli/*` | (kept inside `cli.py` until it exceeds ~400 lines) | — |
 
 ### 2.3 Where each "seam" lives
@@ -154,20 +151,22 @@ The five interfaces that make the platform extensible, and exactly where a new i
 ```mermaid
 flowchart TB
   subgraph fe["frontend/src/"]
-    MAIN2["main.tsx          bootstrap: providers + router"]
-    APP["App.tsx            layout shell, nav, error boundary"]
-    ROUTES["routes.tsx       route table (lazy pages)"]
+    MAIN2["main.tsx          bootstrap + router table (createBrowserRouter)"]
+    APP["App.tsx            layout shell"]
     LIBAPI["lib/api.ts       typed fetch client, problem+json normalisation"]
     LIBWS["lib/live.ts       WebSocket client: reconnect, backoff, staleness"]
     LIBFMT["lib/format.ts    timestamps, durations, bytes, severity colours"]
-    HOOKS["hooks/            useApi, useLiveSession, useZones, useEvents"]
-    COMP["components/       ui primitives + layout"]
-    FEAT["features/         camera overlay, zone editor, event feed, stat cards"]
-    PAGES["pages/            Dashboard, Camera, Events, EventDetail, System, NotFound"]
-    ST["store/              small Context stores (session selection, toasts)"]
+    LIBGEO["lib/geometry.ts  overlay maths (point-in-polygon)"]
+    LIBX["lib/cx.ts        class-name helper"]
+    HOOKS["hooks/            useApi"]
+    COMP["components/       ui primitives (ui.tsx), Toast"]
+    FEAT["features/         live-overlay, webcam capture hook"]
+    PAGES["pages/            Dashboard, Setup, CameraView, Zones, Events, EventDetail, SystemStatus"]
     TYPES["types/api.ts      API DTO types (mirror of OpenAPI schemas)"]
+    TESTS["test/setup.ts     Vitest setup"]
   end
-  MAIN2 --> APP --> ROUTES --> PAGES
+  MAIN2 --> APP
+  MAIN2 --> PAGES
   PAGES --> FEAT --> COMP
   PAGES & FEAT --> HOOKS --> LIBAPI & LIBWS & TYPES
 ```
@@ -175,12 +174,11 @@ flowchart TB
 | Directory | Contents | Rules |
 | --- | --- | --- |
 | `src/pages/` | One file per route; each is a thin composition of features | Pages never call `fetch` directly |
-| `src/features/` | Cohesive product behaviours: `live-overlay/`, `zone-editor/`, `event-feed/`, `stat-card/`, `health-panel/` | Features may import `components/` and `lib/`, never other features' internals |
-| `src/components/` | Reusable presentational primitives (`Button`, `Card`, `Badge`, `Table`, `Modal`, `Field`, `EmptyState`, `Spinner`) | Zero business logic, zero network calls |
-| `src/hooks/` | Data/state hooks (`useApi`, `useLiveSession`, `useZones`, `useEvents`) | All server state funnels through TanStack Query |
-| `src/lib/` | `api.ts` (typed client), `live.ts` (WS), `format.ts` | Pure utilities, unit-tested |
+| `src/features/` | Cohesive product behaviours: `live-overlay/`, `webcam/` | Features may import `components/` and `lib/`, never other features' internals |
+| `src/components/` | Reusable presentational primitives (`ui.tsx`: `Button`, `Card`, `Badge`, `Table`, `Modal`, `Field`, `EmptyState`, `Spinner`) plus `Toast` | Zero business logic, zero network calls |
+| `src/hooks/` | Data/state hooks (`useApi`) | All server state funnels through TanStack Query |
+| `src/lib/` | `api.ts` (typed client), `live.ts` (WS), `format.ts`, `geometry.ts`, `cx.ts` | Pure utilities, unit-tested |
 | `src/types/` | DTO types mirroring the backend schemas | Generated/verified against OpenAPI; never hand-diverged |
-| `src/store/` | Minimal Context for cross-page ephemeral state | Not a Redux-style store |
 
 Naming and conventions:
 
@@ -197,16 +195,15 @@ Naming and conventions:
 flowchart TB
   subgraph t["tests/"]
     CONFT["conftest.py            fixtures: temp DB, settings, client, fake detector"]
-    UT["unit/                   pure logic: geometry, preprocess, postprocess, kalman, tracker"]
-    CV["cv/                     pipeline, zone engine, event engine, sources, deterministic detections"]
+    UT["unit/                   pure logic: geometry, preprocess, postprocess, kalman, tracker, zones, event engine, session lifecycle, CLI"]
+    CV["cv/                     pipeline + deterministic detections; model-marked real ONNX smoke"]
     INT["integration/           services + repositories + DB invariants"]
     API["api/                   HTTP contract, auth, rate limits, error shapes, isolation"]
-    SEC["security/              key hashing, encryption, traversal, cross-tenant, SSRF scheme"]
-    PERF["perf/                  marker-gated latency/FPS smoke"]
+    SEC["security/              key hashing, encryption, traversal, cross-tenant, SSRF scheme, hardening"]
   end
-  subgraph e["e2e/"]
-    PW["playwright.config.ts    real stack + fake camera device"]
-    FLOWS["flows/*.spec.ts       happy path, zone CRUD, event lifecycle, degraded camera"]
+  subgraph e["frontend/e2e/"]
+    PW["../playwright.config.ts  real stack + fake camera device"]
+    FLOWS["*.spec.ts             setup, auth, live, happy path"]
   end
 ```
 
@@ -225,14 +222,18 @@ uv run pytest tests/api/test_events.py::test_event_isolation_between_orgs -q
 
 | Path | Purpose | Notes |
 | --- | --- | --- |
-| `infra/docker/Dockerfile.api` | Production-ish API image (multi-stage, non-root, healthcheck) | Installs uv, runs `uv sync --frozen` |
+| `infra/docker/Dockerfile.api` | Production-ish API image (multi-stage, non-root, healthcheck) | Copies the pinned `uv` image, runs `uv sync --frozen --no-dev` |
 | `infra/docker/Dockerfile.web` | Build + serve the SPA with nginx | Multi-stage: `npm ci && vite build` → nginx |
 | `infra/docker-compose.yml` | Local full stack (API + web) | Not required for development |
-| `infra/nginx/visionops.conf` | Production reverse proxy: TLS, security headers, `/api` and `/ws` proxying, body limits | Documented hardening defaults |
+| `infra/nginx/visionops.conf` | Production reverse proxy: TLS, security headers, `/api` and `/ws` proxying, body limits | Host install; documented hardening defaults |
+| `infra/nginx/docker.conf` | HTTP-only server block used by the web image | Proxies to the compose `api:8000` upstream |
 | `infra/systemd/visionops.service` | Native service unit with `Restart=on-failure`, hardening flags, env file | The recommended small-deployment unit |
-| `scripts/fetch_model.py` | Download + verify ONNX model into the cache; offline-friendly | `--url`, `--sha256`, `--dest` |
+| `infra/systemd/visionops-prune.{service,timer}` | Nightly retention/prune job | `OnCalendar` 03:30, persistent |
+| `infra/systemd/visionops-backup.{service,timer}` | Nightly database + snapshot backup | `OnCalendar` 00:30, persistent |
+| `scripts/backup.sh` | Consistent SQLite `.backup` / `pg_dump` + snapshot archive, 7 daily + 4 weekly retention | Invoked by the backup unit |
 | `scripts/make_fixture.py` | Generate the deterministic synthetic fixture video | Regenerable; committed output is what tests use |
-| `scripts/bench.py` | Measure inference latency, pipeline FPS, RSS on this host | Writes to `docs/benchmarks.md` |
+| `scripts/check_coverage.py` | Enforce the PRD §48 line-coverage gates | Reads `coverage json` output |
+| `scripts/` + `backend/visionops/bench.py` | Model fetch is `visionops model`; benchmarks are `visionops bench` | No separate scripts |
 | `samples/fixtures/zone-walkthrough.mp4` | Synthetic (drawn, no humans) 320×240 clip of a figure crossing a marked area | **Clearly labelled synthetic**; used for plumbing/E2E, never accuracy claims |
 | `samples/SOURCES.md` | Provenance and licence of every sample asset | Required before any third-party asset is committed |
 | `data/` (gitignored) | Runtime state: SQLite DB, snapshots, model cache, logs | Never committed |
@@ -257,11 +258,11 @@ uv run pytest tests/api/test_events.py::test_event_isolation_between_orgs -q
 | --- | --- | --- |
 | New detection model | `vision/onnx_model.py` or a new `vision/*_model.py` + `vision/registry.py` | `tests/cv/`, `docs/VISION_ENGINE.md`, `config.py` |
 | Better tracking | `vision/tracker.py`, `vision/kalman.py` | `tests/unit/`, `docs/VISION_ENGINE.md` |
-| New zone kind | `vision/zones.py` + `vision/registry.py` | `schemas/zone.py`, `frontend/features/zone-editor`, `docs/VISION_ENGINE.md` |
-| New event type | `vision/event_engine.py` registry + `EVENT_REGISTRY` | `docs/EVENT_ENGINE.md`, `frontend/types`, `services/event_service.py` |
-| New REST endpoint | `api/routers/*`, `schemas/*` | `docs/API.md`, frontend `lib/api.ts` |
-| Database change | `models/*`, new Alembic revision | `docs/DATABASE.md`, `tests/integration/` |
-| UI screen | `frontend/src/pages/*`, `features/*` | `frontend/src/routes.tsx` |
+| New zone kind | `vision/zones.py` + `vision/registry.py` | `schemas/dto.py`, `frontend/src/pages/Zones.tsx`, `docs/VISION_ENGINE.md` |
+| New event type | `vision/event_engine.py` registry + `EVENT_REGISTRY` | `docs/EVENT_ENGINE.md`, `frontend/src/types`, `services/event_service.py` |
+| New REST endpoint | `api/routers/*`, `schemas/dto.py` | `docs/API.md`, frontend `lib/api.ts` |
+| Database change | `models/entities.py`, new Alembic revision | `docs/DATABASE.md`, `tests/integration/` |
+| UI screen | `frontend/src/pages/*`, `features/*` | `frontend/src/main.tsx` |
 | Deployment | `infra/*`, `Makefile`, `docs/DEPLOYMENT.md` | `.env.example`, CI |
 | Cross-cutting | first propose an ADR | `docs/TECHNICAL_DECISIONS.md` |
 
