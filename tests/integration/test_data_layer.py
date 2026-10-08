@@ -813,9 +813,7 @@ class TestConnectionHygiene:
         self.zone_id = str(zone.json()["id"])
         return str(camera.json()["id"])
 
-    def test_service_reads_do_not_leak_connections(
-        self, client: Any, camera_id: str
-    ) -> None:
+    def test_service_reads_do_not_leak_connections(self, client: Any, camera_id: str) -> None:
         """``get_camera``/``get_site``/``get_zone`` used to skip ``close()``."""
         import gc
 
@@ -829,9 +827,7 @@ class TestConnectionHygiene:
                 assert container.cameras.get_camera(self.principal, camera_id).id == camera_id
                 assert container.cameras.get_site(self.principal, self.site_id).id == self.site_id
                 assert container.zones.get(self.principal, self.zone_id).id == self.zone_id
-                assert (
-                    container.cameras.list_sources(self.principal, camera_id) is not None
-                )
+                assert container.cameras.list_sources(self.principal, camera_id) is not None
         finally:
             gc.enable()
         gc.collect()

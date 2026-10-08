@@ -225,6 +225,7 @@ def test_capacity_is_reported(capacity: int) -> None:
     assert manager.capacity == capacity
     assert manager.active_count == 0
 
+
 class _QuietSource:
     """A well-behaved source that simply never yields a frame."""
 

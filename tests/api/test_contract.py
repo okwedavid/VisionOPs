@@ -164,7 +164,8 @@ class TestAuthentication:
         from visionops.models import AuditLog
 
         created = client.post(
-            "/api/v1/apikeys", json={"name": "read-only", "permissions": ["camera.read"]},
+            "/api/v1/apikeys",
+            json={"name": "read-only", "permissions": ["camera.read"]},
             headers=auth,
         ).json()
         response = client.post(
@@ -175,9 +176,7 @@ class TestAuthentication:
 
         with container.session_factory() as session:
             rows = (
-                session.execute(
-                    select(AuditLog).where(AuditLog.action == "auth.permission_denied")
-                )
+                session.execute(select(AuditLog).where(AuditLog.action == "auth.permission_denied"))
                 .scalars()
                 .all()
             )
@@ -242,7 +241,6 @@ class TestRateLimit:
         # A different key must be unaffected by the first key's exhaustion.
         assert client.get("/api/v1/cameras", headers={"X-API-Key": other["key"]}).status_code == 200
 
-
     def test_anonymous_traffic_is_throttled_per_source(
         self, client: Any, auth: dict[str, str]
     ) -> None:
@@ -254,8 +252,9 @@ class TestRateLimit:
         """
         client.app.state.container.auth_limiter = _fast_limiter()
         codes = [
-            client.get("/api/v1/cameras", headers={"X-API-Key": f"vo_{i:012d}_" + "x" * 40})
-            .status_code
+            client.get(
+                "/api/v1/cameras", headers={"X-API-Key": f"vo_{i:012d}_" + "x" * 40}
+            ).status_code
             for i in range(6)
         ]
         assert 429 in codes

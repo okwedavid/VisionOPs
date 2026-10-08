@@ -152,11 +152,9 @@ class TestSessionLifecycle:
         )
         session_id = started.json()["session_id"]
 
-        assert _wait_for(
-            lambda: (
-                _frames_processed(client, auth, camera_row["camera_id"]) > 0
-            )
-        ), "the session never processed a frame"
+        assert _wait_for(lambda: _frames_processed(client, auth, camera_row["camera_id"]) > 0), (
+            "the session never processed a frame"
+        )
 
         state = client.get(
             f"/api/v1/cameras/{camera_row['camera_id']}/session", headers=auth
@@ -236,11 +234,7 @@ class TestZoneHotReload:
             headers=auth,
             json={"source_id": camera_row["source_id"]},
         )
-        assert _wait_for(
-            lambda: (
-                _frames_processed(client, auth, camera_row["camera_id"]) > 0
-            )
-        )
+        assert _wait_for(lambda: _frames_processed(client, auth, camera_row["camera_id"]) > 0)
         created = client.post(
             "/api/v1/zones",
             headers=auth,
@@ -298,8 +292,59 @@ class TestLiveStateSocket:
         from starlette.websockets import WebSocketDisconnect
 
         url = f"/api/v1/stream/sessions/{session_id}"
-        with pytest.raises(WebSocketDisconnect), client.websocket_connect(url) as socket:
+        with (
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect(url) as socket,
+        ):
             socket.receive_text()
+        # 4401, not "any failure": no credential was presented at all.
+        assert refused.value.code == 4401
+
+    def test_a_valid_key_without_the_stream_grant_is_refused(
+        self, client: Any, auth: dict[str, str], camera_row: dict[str, Any]
+    ) -> None:
+        """A working but under-privileged key is 4403, and it is not a 4401.
+
+        WebSocket routes bypass FastAPI's dependencies, so before this the
+        permission table was never consulted for them: any key that could
+        authenticate could subscribe to a session's live state and push frames
+        into a running camera.
+        """
+        session_id = self._running(client, auth, camera_row)
+        created = client.post(
+            "/api/v1/apikeys",
+            headers=auth,
+            json={"name": "viewer", "permissions": ["camera.read"]},
+        )
+        assert created.status_code == 201, created.text
+        viewer_key = created.json()["key"]
+
+        from starlette.websockets import WebSocketDisconnect
+
+        url = f"/api/v1/stream/sessions/{session_id}?key={viewer_key}"
+        with (
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect(url) as socket,
+        ):
+            socket.receive_text()
+        assert refused.value.code == 4403
+
+    def test_the_stream_grant_opens_the_socket(
+        self, client: Any, auth: dict[str, str], camera_row: dict[str, Any]
+    ) -> None:
+        """The refusal above is about the grant, not about streaming being off."""
+        session_id = self._running(client, auth, camera_row)
+        created = client.post(
+            "/api/v1/apikeys",
+            headers=auth,
+            json={"name": "streamer", "permissions": ["session.start"]},
+        )
+        assert created.status_code == 201, created.text
+        with client.websocket_connect(
+            f"/api/v1/stream/sessions/{session_id}?key={created.json()['key']}"
+        ) as socket:
+            payload = json.loads(socket.receive_text())
+        assert payload["session_id"] == session_id
 
     def test_an_unknown_session_is_refused(self, client: Any, api_key: str) -> None:
         from starlette.websockets import WebSocketDisconnect
@@ -353,11 +398,9 @@ class TestBrowserIngest:
             for _ in range(5):
                 socket.send_bytes(_jpeg_bytes(frame))
 
-            assert _wait_for(
-                lambda: (
-                    _frames_processed(client, auth, camera_id) > 0
-                )
-            ), "frames pushed over the socket were never processed"
+            assert _wait_for(lambda: _frames_processed(client, auth, camera_id) > 0), (
+                "frames pushed over the socket were never processed"
+            )
 
     def test_a_malformed_frame_is_counted_and_never_processed(
         self, client: Any, auth: dict[str, str], api_key: str
@@ -377,11 +420,9 @@ class TestBrowserIngest:
             # A good frame afterwards must still be accepted: the session
             # survived the garbage rather than wedging.
             socket.send_bytes(_jpeg_bytes(make_frame(1)))
-            assert _wait_for(
-                lambda: (
-                    _frames_processed(client, auth, camera_id) > 0
-                )
-            ), "the session did not recover after malformed frames"
+            assert _wait_for(lambda: _frames_processed(client, auth, camera_id) > 0), (
+                "the session did not recover after malformed frames"
+            )
 
         state = client.get(f"/api/v1/cameras/{camera_id}/session", headers=auth).json()
         assert state["source"]["reason_code"] is None
@@ -507,9 +548,9 @@ class TestBrowserReconnect:
                 socket.send_bytes(_jpeg_bytes(make_frame(index + 1)))
 
         # The socket is closed here. Whatever arrived before it closed is real.
-        assert _wait_for(
-            lambda: _frames_processed(client, auth, camera_id) > 0
-        ), "frames received before the disconnect were thrown away"
+        assert _wait_for(lambda: _frames_processed(client, auth, camera_id) > 0), (
+            "frames received before the disconnect were thrown away"
+        )
 
     def test_a_reconnecting_browser_resumes_the_same_session(
         self, client: Any, auth: dict[str, str], api_key: str
@@ -529,6 +570,6 @@ class TestBrowserReconnect:
         with client.websocket_connect(f"{ingest_url}&key={api_key}") as socket:
             assert json.loads(socket.receive_text())["type"] == "ingest.hello"
             socket.send_bytes(_jpeg_bytes(make_frame(2)))
-            assert _wait_for(
-                lambda: _frames_processed(client, auth, camera_id) > 1
-            ), "the session did not accept frames after the browser reconnected"
+            assert _wait_for(lambda: _frames_processed(client, auth, camera_id) > 1), (
+                "the session did not accept frames after the browser reconnected"
+            )
