@@ -152,7 +152,7 @@ def build_container(
         model_error=model_error,
     )
 
-    return Container(
+    container = Container(
         settings=settings,
         engine=engine,
         session_factory=session_factory,
@@ -181,6 +181,10 @@ def build_container(
         snapshots_enabled=snapshots_enabled,
         retention_days=retention_days,
     )
+    # The model probe must observe runtime swaps (and tests) through the
+    # container, so it is wired here rather than at service construction.
+    system.set_model_providers(container.model_state, lambda: container.model_info)
+    return container
 
 
 # ---------------------------------------------------------------------------

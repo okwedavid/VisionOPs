@@ -187,6 +187,7 @@ export function useStartSession() {
       api.startSession(args.cameraId, args.body ?? {}),
     (args) => [
       ['system', 'status'],
+      ['system', 'ready'],
       ['session', args.cameraId],
     ],
   )
@@ -197,6 +198,7 @@ export function useStopSession() {
     (cameraId: string) => api.stopSession(cameraId),
     (cameraId) => [
       ['system', 'status'],
+      ['system', 'ready'],
       ['session', cameraId],
     ],
   )

@@ -103,16 +103,22 @@ Mutating endpoints accept an optional `Idempotency-Key` header, and writes to `z
 ```json
 {
   "status": "ready",
+  "timestamp": "2026-01-01T09:31:04.120000+00:00",
   "checks": {
-    "database": { "state": "ok", "latency_ms": 1.2 },
-    "model":    { "state": "ok", "model": "yolo11n", "warmup_ms": 210 },
-    "snapshots":{ "state": "ok", "enabled": false },
-    "sessions": { "state": "ok", "active": 1, "max": 4 }
+    "api":      { "state": "ok", "reason_code": null, "detail": "API responding", "required": true },
+    "database": { "state": "ok", "reason_code": null, "detail": "1.2 ms", "required": true },
+    "storage":  { "state": "ok", "reason_code": null, "detail": "0.4 GB free", "required": false },
+    "model":    { "state": "ok", "reason_code": null, "detail": "yolo11n ready", "required": false },
+    "sessions": { "state": "ok", "reason_code": null, "detail": "no active sessions", "required": false }
   }
 }
 ```
 
-`200` when the API can serve requests. `503` when the database is unreachable. Note: a **missing model makes readiness `degraded`, not `failed`** — the API is still useful (configuration, history, export) and the UI shows AI as unavailable honestly.
+`200` when the API can serve requests; `503` when a **required** dependency (`api`, `database`) has failed, with `"status": "unavailable"`. Every check carries `state` (`ok` | `degraded` | `failed`), an optional `reason_code`/`detail`, and a `required` flag.
+
+A **missing model or a single failing camera makes readiness `degraded`, not `unavailable`** — configuration, history and export still work, and the UI shows AI honestly rather than pretending the platform is down. The aggregation is: a required check failed → `unavailable`; anything else degraded or failed → `degraded`; otherwise `ready`.
+
+`timestamp` is the server time (UTC, ISO-8601) at which the checks ran; clients use it together with their own clock to show staleness.
 
 ### `GET /system/status` — the human-facing health aggregate `CURRENT`
 
@@ -121,12 +127,17 @@ Mutating endpoints accept an optional `Idempotency-Key` header, and writes to `z
   "status": "degraded",              // healthy | degraded | failed
   "version": "0.1.0",
   "environment": "local",
+  "timestamp": "2026-01-01T09:31:04.120000+00:00",
   "uptime_seconds": 3612.4,
   "model": {
     "state": "ready",                 // ready | loading | failed | disabled
     "name": "yolo11n", "sha256": "…", "provider": "CPUExecutionProvider",
     "input": {"width": 640, "height": 640}, "classes": 80,
     "warmup_ms": 210, "last_inference_ms": 38.2
+  },
+  "checks": {                         // api | database | storage | model | sessions
+    "database": { "state": "ok", "reason_code": null, "detail": "1.2 ms", "required": true },
+    "model":    { "state": "ok", "reason_code": null, "detail": "yolo11n ready", "required": false }
   },
   "sessions": {
     "active": 1, "max": 4,
@@ -151,6 +162,8 @@ Mutating endpoints accept an optional `Idempotency-Key` header, and writes to `z
 ```
 
 This is the single source of truth for the System Status page. It is designed to be *readable by a human operator in 3 seconds* and to be the first thing a support request includes.
+
+The verdict uses the same rule as `/readyz`: a **required** subsystem (`database`) failing is `failed`; an **optional** subsystem (`storage`, `model`, `sessions`) failing or degrading is `degraded`; everything healthy is `healthy`. A single camera losing its feed therefore degrades the platform report, never marks it failed.
 
 ### `GET /system/metrics` — Prometheus text exposition `CURRENT`
 

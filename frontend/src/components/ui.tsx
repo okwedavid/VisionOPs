@@ -83,7 +83,9 @@ export function StatusDot({ state }: { state: string }) {
         ? 'bg-warn'
         : state === 'failed' || state === 'critical' || state === 'error'
           ? 'bg-crit'
-          : 'bg-ink-3'
+          : state === 'starting' || state === 'loading' || state === 'checking'
+            ? 'bg-info'
+            : 'bg-ink-3'
   return <span className={cx('inline-block size-2 shrink-0 rounded-full', color)} aria-hidden="true" />
 }
 

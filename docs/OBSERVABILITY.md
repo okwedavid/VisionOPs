@@ -186,29 +186,31 @@ Exposed at `GET /api/v1/system/metrics` in Prometheus text format. Registry live
 
 ## 4. System status (the operator-facing aggregate)
 
-`GET /api/v1/system/status` merges five subsystems into one verdict:
+`GET /api/v1/system/status` merges five subsystems into one verdict. Health is computed by `services/system_service.py`: each probe returns `(state, reason_code, detail)`, `ok` and `healthy` share the lowest severity rank, and the aggregate applies the required/optional rule below.
 
 ```mermaid
 flowchart LR
-  M["model"] --> S
-  SS["sessions / sources"] --> S
-  P["pipeline health"] --> S
-  D["database"] --> S
-  F["storage / disk"] --> S
-  S["status snapshot<br/>healthy | degraded | failed<br/>+ per-subsystem state + reason"]
-  S --> UI["System page"]
+  API["api"] --> S
+  D["database (required)"] --> S
+  F["storage / disk (optional)"] --> S
+  M["model (optional)"] --> S
+  SS["sessions / sources (optional)"] --> S
+  S["status snapshot<br/>healthy | degraded | failed<br/>+ per-subsystem state + reason + required"]
+  S --> UI["System page / header badge"]
   S --> SUP["Support ticket first attachment"]
 ```
 
-Verdict rules:
+Verdict rules (`status` is `healthy | degraded | failed`; `/readyz` reports the same rule as `ready | degraded | unavailable`):
 
 | Verdict | When |
 | --- | --- |
-| `healthy` | All subsystems `ok`; every session `RUNNING` (or intentionally stopped) |
-| `degraded` | Any source `DEGRADED`, any inference error, high frame age, low disk (< 500 MB free), events being dropped |
-| `failed` | Model unusable, database unreachable, or all sessions failed |
+| `healthy` | Every subsystem is `ok` (or intentionally disabled) |
+| `degraded` | Any **optional** subsystem is `degraded` or `failed` — e.g. a source `DEGRADED`, an inference error, high frame age, low disk (< 500 MB free), or a single camera whose session `failed`. A per-camera failure degrades the platform report, it never makes it `failed`/offline. |
+| `failed` | A **required** subsystem failed — the `database` is unreachable. `/readyz` answers `503`/`unavailable` in this case. |
 
-Each subsystem carries `{state, reason_code, detail}` where `reason_code` is a **stable machine string** (`CAMERA_BUSY`, `RTSP_TIMEOUT`, `MODEL_MISSING`, `MODEL_CORRUPT`, `SOURCE_STALLED`, `DISK_LOW`, `DB_UNREACHABLE`) and `detail` is an actionable human sentence. Reason codes are part of the public contract — clients may switch on them.
+Each subsystem carries `{state, reason_code, detail, required}` where `reason_code` is a **stable machine string** (`CAMERA_BUSY`, `RTSP_TIMEOUT`, `MODEL_MISSING`, `MODEL_CORRUPT`, `SOURCE_STALLED`, `DISK_LOW`, `DB_UNREACHABLE`, `HEALTH_TIMEOUT`, `PROBE_ERROR`) and `detail` is an actionable human sentence, scrubbed of connection strings or credentials. Reason codes are part of the public contract — clients may switch on them.
+
+`implemented` — the header badge (`HealthBadge`) and the System page both read the same `useHealthStatus()` hook so they cannot disagree. The hook polls `GET /api/v1/readyz` every 12 s (paused in a background tab), derives one of four states for the badge — `checking`, `healthy`, `degraded`, `offline` — keeps the last good answer marked *stale* if a refresh fails, and never treats an authentication failure as the backend being offline. Dependencies are probed with bounded timeouts (the database probe uses its own engine with a 1 s lock wait and a 2 s thread bound, and the whole sweep observes a wall-clock budget) so a health request cannot hang behind a stuck dependency.
 
 ---
 
@@ -235,6 +237,6 @@ The metrics and status endpoints are the inputs for an operator's own alerting t
 
 - `core/logging.py` owns the formatter, the redaction filter and the `contextvar` for `request_id`/`session_id`.
 - `observability/metrics.py` is a lock-protected registry of counters/gauges/histograms with a Prometheus text exporter and bounded label cardinality (unknown labels are collapsed to `other`).
-- `observability/health.py` builds the status snapshot from injected probes (engine, session manager, database, storage), each returning `(state, reason_code, detail)`; probes are cheap and never raise.
+- `services/system_service.py` builds the status snapshot from injected probes (`database`, `storage`, `model`, `sessions`), each returning a `Check(state, reason_code, detail, required)`; the aggregate is `aggregate_verdict()`. Probes are cheap, never raise (a raising probe is reported as `PROBE_ERROR`), and a slow probe is bounded by `timeout_seconds`.
 - Metrics are read from a pipeline's own counters (each session owns its histograms) and registered/unregistered with the global registry on start/stop, so a stopped session's series disappear instead of going stale.
 - Tests assert metric names, label sets and cardinality bounds, so a future refactor cannot silently break dashboards.

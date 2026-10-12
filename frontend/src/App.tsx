@@ -1,8 +1,9 @@
 import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
-import { Badge, Button, StatusDot } from './components/ui'
-import { healthClass, reasonSentence, seconds } from './lib/format'
+import { Badge, Button } from './components/ui'
+import { HealthBadge } from './components/HealthBadge'
+import { reasonSentence, seconds } from './lib/format'
 import { clearApiKey, getApiKey } from './lib/api'
 import { useSystemStatus } from './hooks/useApi'
 
@@ -62,9 +63,7 @@ export function AppLayout() {
     document.getElementById('main')?.focus()
   }, [location.pathname])
 
-  const health = status?.status ?? 'unknown'
   const active = status?.sessions.active ?? 0
-
   return (
     <div className="flex min-h-screen flex-col">
       <a
@@ -111,10 +110,7 @@ export function AppLayout() {
           <div className="ml-auto flex items-center gap-2">
             {hasKey ? (
               <>
-                <Badge className={healthClass(health)} title={`System health: ${health}`}>
-                  <StatusDot state={health} />
-                  {health}
-                </Badge>
+                <HealthBadge />
                 {active > 0 && (
                   <Badge className="border-border bg-surface-2 text-ink-2" title="Active processing sessions">
                     {active} live

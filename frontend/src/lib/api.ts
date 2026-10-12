@@ -14,6 +14,7 @@ import type {
   EventSummary,
   ModelInfoResponse,
   Organization,
+  ReadyResponse,
   SessionInfo,
   Site,
   SystemStatus,
@@ -97,6 +98,11 @@ interface RequestOptions {
   signal?: AbortSignal
   /** Skip the API key (public endpoints). */
   anonymous?: boolean
+  /**
+   * Status codes to treat as success. ``/readyz`` answers ``503`` with a valid
+   * readiness document — that body is the signal, not an error to discard.
+   */
+  acceptStatus?: number[]
 }
 
 function buildQuery(query: RequestOptions['query']): string {
@@ -111,7 +117,7 @@ function buildQuery(query: RequestOptions['query']): string {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, query, signal, anonymous = false } = options
+  const { method = 'GET', body, query, signal, anonymous = false, acceptStatus = [] } = options
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (!anonymous) {
@@ -141,7 +147,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (response.status === 204) return undefined as T
 
   const contentType = response.headers.get('content-type') ?? ''
-  if (!response.ok) {
+  if (!response.ok && !acceptStatus.includes(response.status)) {
     let problem: Record<string, unknown> = {}
     if (contentType.includes('json')) {
       problem = (await response.json().catch(() => ({}))) as Record<string, unknown>
@@ -208,7 +214,8 @@ export interface ZonePatch {
 export const api = {
   // -- system ------------------------------------------------------------
   health: () => request<{ status: string; version: string; uptime_seconds: number }>('/healthz', { anonymous: true }),
-  ready: () => request<{ status: string; checks: Record<string, unknown> }>('/readyz', { anonymous: true }),
+  ready: (signal?: AbortSignal) =>
+    request<ReadyResponse>('/readyz', { anonymous: true, signal, acceptStatus: [503] }),
   status: () => request<SystemStatus>('/system/status'),
   model: () => request<ModelInfoResponse>('/models/current'),
   metricsText: async (): Promise<string> => {

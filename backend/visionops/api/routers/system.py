@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, Request, Response, status
@@ -20,6 +21,12 @@ router = APIRouter(tags=["system"])
 PUBLIC_PATHS = frozenset({"/healthz", "/readyz", "/api/v1/healthz", "/api/v1/readyz"})
 
 
+def _now_iso() -> str:
+    from datetime import datetime
+
+    return datetime.now(UTC).isoformat()
+
+
 @router.get("/healthz", response_model=HealthOut, summary="Liveness")
 def healthz(container: ContainerDep) -> HealthOut:
     """Liveness: the process is running. Never touches the database."""
@@ -35,31 +42,29 @@ def readyz(container: ContainerDep, response: Response) -> ReadyOut:
     """Readiness: the API can serve requests.
 
     A missing model makes this ``degraded`` rather than unready — configuration,
-    history and export still work.
+    history and export still work. ``503`` is reserved for a *required*
+    dependency (the database) being down.
     """
-    ready, checks = container.system.readiness()
-    checks = dict(checks)
-    checks["model"] = {
-        "state": container.model_state(),
-        "detail": container.model_error
-        or (container.model_info.name if container.model_info else None),
-    }
-    if not ready:
+    from ...services.system_service import Check
+
+    verdict, checks = container.system.readiness()
+    # The API answering at all is itself a required, healthy component; it makes
+    # the readiness document self-describing for the UI's diagnostics panel.
+    payload: dict[str, Any] = {"api": Check("ok", None, "API responding", required=True)}
+    payload.update(checks)
+    if verdict == "unavailable":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return ReadyOut(status="unavailable", checks=checks)
-    model_ok = checks["model"]["state"] in ("ready", "loading")
-    return ReadyOut(status="ready" if model_ok else "degraded", checks=checks)
+    return ReadyOut(
+        status=verdict,
+        timestamp=_now_iso(),
+        checks={name: check.to_dict() for name, check in payload.items()},
+    )
 
 
 @router.get("/system/status", summary="Full system status")
 def system_status(container: ContainerDep, _principal: PrincipalDep) -> dict[str, Any]:
     """The human-facing health aggregate that the System page renders."""
-    payload = container.system.status(
-        model_state=container.model_state(), model_info=container.model_info
-    )
-    if container.model_error and "detail" not in (payload["model"] or {}):
-        payload["model"]["detail"] = container.model_error
-    return payload
+    return container.system.status()
 
 
 @router.get(

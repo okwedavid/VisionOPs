@@ -202,6 +202,12 @@ describe('specialist endpoints', () => {
     await expect(api.metricsText()).rejects.toBeInstanceOf(ApiError)
   })
 
+  it('treats a 503 readiness document as a successful read', async () => {
+    const document = { status: 'unavailable', timestamp: 'now', checks: {} }
+    fetchMock.mockResolvedValueOnce(jsonResponse(document, 503))
+    await expect(api.ready()).resolves.toEqual(document)
+  })
+
   it('exportUrl returns a blob and errors on failure', async () => {
     fetchMock.mockResolvedValueOnce(new FakeResponse('', 200, 'text/csv'))
     await expect(api.exportUrl({ since: 'a', until: 'b' })).resolves.toBeInstanceOf(Blob)
@@ -228,6 +234,7 @@ describe('every wrapper targets the documented route', () => {
     fetchMock.mockResolvedValue(jsonResponse({}))
     const cases: [string, () => Promise<unknown>, string][] = [
       ['status', () => api.status(), '/system/status'],
+      ['ready', () => api.ready(), '/readyz'],
       ['model', () => api.model(), '/models/current'],
       ['organization', () => api.organization(), '/organizations/self'],
       ['sites', () => api.sites(), '/sites'],

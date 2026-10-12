@@ -33,14 +33,20 @@ def _sqlite_path(url: str) -> Path | None:
     return Path(raw)
 
 
-def build_engine(database_url: str, *, echo: bool = False) -> Engine:
-    """Create an engine with the settings each dialect needs."""
+def build_engine(
+    database_url: str, *, echo: bool = False, busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS
+) -> Engine:
+    """Create an engine with the settings each dialect needs.
+
+    ``busy_timeout_ms`` is overridable so a health probe can bound its own wait
+    well below the request timeout and still answer during a write spike.
+    """
     connect_args: dict[str, object] = {}
     if database_url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
         # We manage transactions explicitly per operation; a long-lived read
         # connection would otherwise see a stale snapshot.
-        connect_args["timeout"] = SQLITE_BUSY_TIMEOUT_MS / 1000.0
+        connect_args["timeout"] = busy_timeout_ms / 1000.0
         path = _sqlite_path(database_url)
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,7 +68,7 @@ def build_engine(database_url: str, *, echo: bool = False) -> Engine:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+            cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
             cursor.close()
 
     return engine

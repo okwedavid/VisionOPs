@@ -293,6 +293,7 @@ class HealthOut(ApiModel):
 
 class ReadyOut(ApiModel):
     status: str
+    timestamp: str
     checks: dict[str, Any]
 
 

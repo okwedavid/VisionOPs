@@ -25,11 +25,24 @@ export const HEALTH_CLASS: Record<string, string> = {
   degraded: 'bg-warn/12 text-warn border-warn/40',
   starting: 'bg-info/12 text-info border-info/40',
   loading: 'bg-info/12 text-info border-info/40',
+  checking: 'bg-info/12 text-info border-info/40',
   unconfigured: 'bg-surface-2 text-ink-3 border-border',
   disabled: 'bg-surface-2 text-ink-3 border-border',
   failed: 'bg-crit/12 text-crit border-crit/40',
   stopped: 'bg-surface-2 text-ink-3 border-border',
   offline: 'bg-surface-2 text-ink-3 border-border',
+}
+
+const HEALTH_LABEL: Record<string, string> = {
+  healthy: 'Healthy',
+  degraded: 'Degraded',
+  offline: 'Offline',
+  checking: 'Checking…',
+}
+
+/** The operator-facing word for a four-state health verdict. */
+export function healthLabel(state: string): string {
+  return HEALTH_LABEL[state] ?? state
 }
 
 export function severityLabel(severity: Severity | ZoneSeverity | string): string {
@@ -257,9 +270,15 @@ export function reasonSentence(code: string | null | undefined, detail?: string 
     WAITING_FOR_CLIENT: 'Waiting for the browser to share its camera.',
     MODEL_MISSING: 'No detection model is installed.',
     MODEL_CORRUPT: 'The detection model could not be loaded.',
-    MODEL_ERROR: 'Inference failed.',
+    MODEL_UNAVAILABLE: 'The detection model is unavailable.',
+    MODEL_LOADING: 'The detection model is still loading.',
+    MODEL_DISABLED: 'Detection is disabled.',
+    MODEL_ERROR: 'Inference failed recently; retrying.',
     DISK_LOW: 'There is little free disk space left.',
+    STORAGE_UNAVAILABLE: 'The snapshot directory is not writable.',
     DB_UNREACHABLE: 'The database is unreachable.',
+    HEALTH_TIMEOUT: 'A health check took too long to answer.',
+    PROBE_ERROR: 'A health check failed unexpectedly.',
   }
   return map[code] ?? code.replace(/_/g, ' ').toLowerCase()
 }

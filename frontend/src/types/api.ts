@@ -16,6 +16,29 @@ export type SourceKind = 'browser' | 'device' | 'file' | 'rtsp'
 export type ZoneKind = 'polygon' | 'line'
 export type SessionState = 'starting' | 'running' | 'degraded' | 'failed' | 'stopped'
 
+/**
+ * The four states the health badge may show.
+ *
+ * `checking` is the honest initial state before the first answer arrives;
+ * `offline` means we cannot reach the API at all (or a required dependency is
+ * down). Authentication failures are never treated as `offline`.
+ */
+export type HealthState = 'checking' | 'healthy' | 'degraded' | 'offline'
+
+/** One subsystem in a readiness response (`GET /readyz`). */
+export interface ReadyCheck {
+  state: string
+  reason_code: string | null
+  detail: string | null
+  required: boolean
+}
+
+export interface ReadyResponse {
+  status: 'ready' | 'degraded' | 'unavailable'
+  timestamp: string
+  checks: Record<string, ReadyCheck>
+}
+
 /** `[x1, y1, x2, y2]` in normalised frame coordinates. */
 export type NormalizedBox = [number, number, number, number]
 /** `[[x, y], …]` in normalised frame coordinates. */
@@ -248,6 +271,7 @@ export interface SystemStatus {
   status: 'healthy' | 'degraded' | 'failed'
   version: string
   environment: string
+  timestamp?: string
   uptime_seconds: number
   model: {
     state: string
@@ -262,7 +286,7 @@ export interface SystemStatus {
     detail: string | null
   }
   sessions: { active: number; max: number; items: SessionInfo[] }
-  checks: Record<string, { state: string; reason_code: string | null; detail: string | null }>
+  checks: Record<string, { state: string; reason_code: string | null; detail: string | null; required?: boolean }>
   storage: {
     database: string
     snapshot_dir: string

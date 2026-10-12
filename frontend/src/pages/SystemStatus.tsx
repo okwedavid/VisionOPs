@@ -1,12 +1,15 @@
 import { Link } from 'react-router-dom'
 
 import { Badge, Card, DataTable, Loading, StatCard, StatusDot } from '@/components/ui'
-import { bytes, milliseconds, number, reasonSentence, seconds } from '@/lib/format'
+import { HealthBadge } from '@/components/HealthBadge'
+import { bytes, milliseconds, number, reasonSentence, relativeTime, seconds } from '@/lib/format'
+import { useHealthStatus } from '@/hooks/useHealth'
 import { useModelInfo, useOrganization, useSystemStatus } from '@/hooks/useApi'
 
 /** Is it healthy, and if not, exactly why? The first page support asks for. */
 export function SystemStatus() {
   const status = useSystemStatus()
+  const health = useHealthStatus()
   const model = useModelInfo()
   const organization = useOrganization()
 
@@ -24,7 +27,8 @@ export function SystemStatus() {
 
   const data = status.data
   const session = data.sessions.items[0]
-  const health = data.status
+  const verdict = data.status
+  const lastChecked = health.lastSuccessAt ?? data.timestamp ?? null
 
   return (
     <div className="space-y-4">
@@ -36,20 +40,18 @@ export function SystemStatus() {
             {seconds(data.uptime_seconds)}
           </p>
         </div>
-        <Badge className={health === 'healthy' ? 'border-ok/40 bg-ok/12 text-ok' : health === 'degraded' ? 'border-warn/40 bg-warn/12 text-warn' : 'border-crit/40 bg-crit/12 text-crit'}>
-          <StatusDot state={health} /> {health}
-        </Badge>
+        <HealthBadge />
       </header>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
           label="Overall"
-          value={health}
+          value={verdict}
           hint={Object.entries(data.checks)
             .filter(([, check]) => check.state !== 'ok')
             .map(([name, check]) => `${name}: ${check.reason_code ?? check.state}`)
             .join(', ') || 'all subsystems ok'}
-          state={health === 'healthy' ? 'ok' : health === 'degraded' ? 'warn' : 'crit'}
+          state={verdict === 'healthy' ? 'ok' : verdict === 'degraded' ? 'warn' : 'crit'}
         />
         <StatCard
           label="Sessions"
@@ -108,7 +110,20 @@ export function SystemStatus() {
           )}
         </Card>
 
-        <Card title="Subsystems" subtitle="Every check reports a state and a reason code">
+        <Card
+          title="Subsystems"
+          subtitle={
+            lastChecked
+              ? `Every check reports a state and a reason code · last checked ${relativeTime(lastChecked)}`
+              : 'Every check reports a state and a reason code'
+          }
+        >
+          {health.authError && (
+            <p className="mb-3 rounded border border-warn/40 bg-warn/10 p-2 text-xs text-warn">
+              This browser is not signed in. The overall badge can still read the public health endpoint,
+              but authenticated data below may be unavailable.
+            </p>
+          )}
           <ul className="space-y-2">
             {Object.entries(data.checks).map(([name, check]) => (
               <li key={name} className="flex items-start gap-2 text-sm">
@@ -117,6 +132,9 @@ export function SystemStatus() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="font-medium capitalize">{name}</span>
+                  {check.required && (
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-ink-3">required</span>
+                  )}
                   <span className="ml-2 text-xs text-ink-3">{check.detail ?? check.reason_code ?? 'ok'}</span>
                 </span>
                 <Badge
