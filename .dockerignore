@@ -1,0 +1,31 @@
+# Keep the Docker build context small and free of secrets/artifacts.
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+coverage.xml
+htmlcov/
+
+# Frontend: dependencies and build output are produced inside the image.
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/playwright-report
+frontend/test-results
+
+# Runtime state and secrets must never enter the image.
+data/
+models/
+.env
+*.db
+*.sqlite3
+
+# Tests and docs are not needed to build or run the service.
+tests/
+docs/
+infra/systemd/

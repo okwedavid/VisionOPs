@@ -173,6 +173,10 @@ Production runs the API behind nginx (same-origin SPA + WebSocket), against Post
 under systemd or Docker. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the runbook
 and [`infra/`](infra/) for ready-made artefacts.
 
+For a quick hosted test on Render, the committed [`render.yaml`](render.yaml) Blueprint
+deploys a single Docker service (API + SPA, SQLite): see
+[`docs/RENDER.md`](docs/RENDER.md).
+
 ## Security & privacy
 
 API-key auth, per-key and per-IP rate limiting, encrypted camera credentials, path

@@ -17,6 +17,10 @@
 
 **No form requires a message broker, a Kubernetes cluster, or a paid service.**
 
+> **Hosted test on Render:** a single Docker web service runs the API and serves the
+> SPA on one origin (SQLite; no separate frontend or database). See the committed
+> [`render.yaml`](../render.yaml) Blueprint and the [`RENDER.md`](RENDER.md) runbook.
+
 ---
 
 ## 2. Prerequisites

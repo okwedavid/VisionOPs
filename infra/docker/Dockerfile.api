@@ -36,8 +36,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies first, so the layer caches across source edits.
-COPY pyproject.toml uv.lock ./
+# Dependencies first, so the layer caches across source edits. README.md is
+# required: hatchling reads it for the package metadata when building the wheel.
+COPY pyproject.toml uv.lock README.md ./
 COPY backend ./backend
 RUN uv sync --frozen --no-dev --no-editable
 

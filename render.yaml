@@ -1,0 +1,75 @@
+# Render Blueprint — VisionOps test deployment (single service).
+#
+# One Docker web service runs the API and serves the compiled SPA on the same
+# origin (no CORS, no second service). Dockerfile.render builds the SPA, installs
+# the backend, and bakes the pinned YOLO weights.
+#
+# Free plan notes (see docs/RENDER.md):
+#   * 512 MB RAM and an ephemeral filesystem — the SQLite DB resets on every
+#     deploy/restart and free instances spin down when idle.
+#   * For persistent data, upgrade the plan and uncomment the `disk:` block below
+#     (persistent disks require a paid instance). Keep data at /app/data so it
+#     never shadows the SPA at /app/frontend/dist.
+#
+# Secrets are `sync: false` on purpose: create them in the Render dashboard with
+# the exact formats in docs/RENDER.md. Do NOT let Render generate the API key.
+
+services:
+  - type: web
+    name: visionops
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./infra/docker/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /api/v1/healthz
+    autoDeployTrigger: commit
+
+    # Persistent SQLite across deploys/restarts requires a paid plan:
+    # plan: starter
+    # disk:
+    #   name: visionops-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+    envVars:
+      # -- non-secret runtime configuration -------------------------------
+      - key: VISIONOPS_ENV
+        value: production
+      - key: VISIONOPS_LOG_LEVEL
+        value: INFO
+      - key: VISIONOPS_LOG_FORMAT
+        value: json
+      # Free instance is 512 MB; one live session keeps headroom.
+      - key: VISIONOPS_MAX_SESSIONS
+        value: "1"
+
+      # -- data paths (kept under /app/data so a disk can persist them) ---
+      - key: VISIONOPS_DATA_DIR
+        value: /app/data
+      - key: VISIONOPS_SNAPSHOT_DIR
+        value: /app/data/snapshots
+      - key: VISIONOPS_MEDIA_ROOT
+        value: /app/data/media
+      - key: VISIONOPS_DATABASE_URL
+        value: sqlite:////app/data/visionops.db
+
+      # -- model (baked into the image, verified by SHA-256) --------------
+      - key: VISIONOPS_MODEL_PATH
+        value: /app/models/yolo11n.onnx
+      - key: VISIONOPS_MODEL_SHA256
+        value: 634279b40c07c6391472c51ad45b81ebc48706a9a1fe72dd3396322acd0c053b
+
+      # Same-origin SPA + API: no cross-origin requests to allow.
+      - key: VISIONOPS_CORS_ORIGINS
+        value: ""
+
+      # -- secrets (set in the dashboard; see docs/RENDER.md) -------------
+      # Must be a valid `vo_<12-hex>_<secret>` key or startup bootstrap will
+      # create one you cannot retrieve.
+      - key: VISIONOPS_API_KEY
+        sync: false
+      # Required to store RTSP credentials; omitted is fine for browser webcams.
+      - key: VISIONOPS_MASTER_KEY
+        sync: false

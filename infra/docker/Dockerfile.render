@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1
+#
+# VisionOps — single-image build for Render (and any PaaS that runs one
+# container behind TLS).
+#
+# The API serves the compiled SPA itself from `_spa_dir()` = `Path(data_dir).parent
+# / "frontend" / "dist"`, on the same origin as `/api/v1`, so there is one
+# service, no CORS and no second container. The YOLO weights are baked at build
+# time (pinned by SHA-256) so the container boots offline and never downloads at
+# runtime.
+#
+# Data (SQLite DB, snapshots, media) lives under VISIONOPS_DATA_DIR=/app/data,
+# deliberately *outside* the SPA path, so attaching a Render persistent disk at
+# /app/data persists state without shadowing the web build.
+
+ARG NODE_VERSION=22
+ARG PYTHON_VERSION=3.12
+ARG UV_VERSION=0.12.21
+
+# --- Stage 1: build the Vite SPA -------------------------------------------
+FROM node:${NODE_VERSION}-alpine AS web
+
+WORKDIR /web
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend ./
+RUN npm run build
+
+
+# --- Stage 2: API + SPA runtime --------------------------------------------
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+# libgomp1: OpenMP runtime required by onnxruntime. libglib2.0-0: OpenCV.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=uv /uv /uvx /bin/
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+# Dependencies first, so the layer caches across backend edits. README.md is
+# required: hatchling reads it for the package metadata when building the wheel.
+COPY pyproject.toml uv.lock README.md ./
+COPY backend ./backend
+RUN uv sync --frozen --no-dev --no-editable
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    VISIONOPS_ENV=production \
+    VISIONOPS_HOST=0.0.0.0 \
+    VISIONOPS_PORT=8000 \
+    VISIONOPS_DATA_DIR=/app/data \
+    VISIONOPS_SNAPSHOT_DIR=/app/data/snapshots \
+    VISIONOPS_MEDIA_ROOT=/app/data/media \
+    VISIONOPS_DATABASE_URL=sqlite:////app/data/visionops.db \
+    VISIONOPS_MODEL_PATH=/app/models/yolo11n.onnx \
+    VISIONOPS_MODEL_SHA256=634279b40c07c6391472c51ad45b81ebc48706a9a1fe72dd3396322acd0c053b
+
+# The SPA the API serves, from `_spa_dir(data_dir)`.
+COPY --from=web /web/dist ./frontend/dist
+
+# Bake the model so boot is offline and the weights are verifiable.
+RUN visionops model
+
+# Non-root runtime user; /app/data is where a persistent disk is mounted.
+RUN useradd --system --uid 10001 --home /app --shell /usr/sbin/nologin visionops \
+    && mkdir -p /app/data \
+    && chown -R visionops:visionops /app
+USER visionops
+
+VOLUME ["/app/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import os,urllib.request,sys; port=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/api/v1/healthz', timeout=4).status == 200 else 1)"
+
+# Render injects $PORT; bind it. Shell form so the variable expands; `exec` so
+# the server becomes PID 1 and receives SIGTERM directly for a clean shutdown.
+CMD ["sh", "-c", "exec visionops serve --host 0.0.0.0 --port ${PORT:-8000}"]
