@@ -8,10 +8,11 @@ mis-instrumented call site can neither blow up memory nor the exporter.
 
 from __future__ import annotations
 
+import importlib
 import math
 import threading
 from collections.abc import Iterable, Mapping, MutableMapping
-from typing import Any
+from typing import Any, cast
 
 #: Default histogram buckets, in seconds: 5 ms → 5 s.
 DEFAULT_BUCKETS: tuple[float, ...] = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
@@ -306,15 +307,27 @@ def resident_memory_bytes() -> int | None:
             pages = int(handle.read().split()[1])
     except (OSError, IndexError, ValueError):  # pragma: no cover - non-Linux
         return None
-    import resource
+    resource = _resource_module()
+    if resource is None:  # pragma: no cover - non-Unix
+        return None
 
     page_size = resource.getpagesize()
     return pages * page_size
 
 
+def _resource_module() -> Any | None:
+    """The Unix ``resource`` module, or ``None`` where it does not exist."""
+    try:
+        return cast(Any, importlib.import_module("resource"))
+    except ImportError:  # pragma: no cover - Windows
+        return None
+
+
 def cpu_seconds() -> float:
-    """Process CPU time (user + system) in seconds."""
-    import resource
+    """Process CPU time (user + system) in seconds, or 0 where unavailable."""
+    resource = _resource_module()
+    if resource is None:  # pragma: no cover - Windows
+        return 0.0
 
     usage = resource.getrusage(resource.RUSAGE_SELF)
     return usage.ru_utime + usage.ru_stime
