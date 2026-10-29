@@ -53,7 +53,9 @@ data/
 *.db-shm
 *.sqlite
 *.sqlite3
-models/
+# Root weights dir only. Anchored so it does not also hide the source package
+# `backend/visionops/models/`, which must ship in the wheel.
+/models/
 *.onnx
 *.pt
 *.engine
