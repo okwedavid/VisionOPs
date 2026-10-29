@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -44,8 +45,12 @@ class Settings(BaseSettings):
     # -- security -----------------------------------------------------------
     api_key: str | None = None
     master_key: str | None = None
-    trusted_proxies: list[str] = Field(default_factory=list)
-    cors_origins: list[str] = Field(default_factory=list)
+    # ``NoDecode`` keeps pydantic-settings from JSON-decoding the raw env string
+    # before validation: an empty value (the same-origin default) or a
+    # comma-separated list would otherwise raise SettingsError. The
+    # ``_parse_str_list`` validator below accepts empty, JSON arrays and CSV.
+    trusted_proxies: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     rate_limit_rps: float = Field(default=10.0, gt=0)
     auth_failure_limit: int = Field(default=10, gt=0)
     max_body_bytes: int = Field(default=1_048_576, gt=0)
@@ -95,10 +100,27 @@ class Settings(BaseSettings):
 
     @field_validator("trusted_proxies", "cors_origins", mode="before")
     @classmethod
-    def _split_csv(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+    def _parse_str_list(cls, value: object) -> object:
+        """Parse a list-valued setting from its raw environment string.
+
+        Accepts an empty value (empty list), a JSON array of strings, or a
+        comma-separated list. Anything that looks like JSON but is not a JSON
+        array of strings is rejected, so a typo fails fast rather than silently
+        widening the allow-list.
+        """
+        if value is None:
+            return []
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return []
+        if text[0] in "[{":
+            parsed = json.loads(text)
+            if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
+                raise ValueError("expected a JSON array of strings")
+            return parsed
+        return [item.strip() for item in text.split(",") if item.strip()]
 
     @field_validator("class_filter")
     @classmethod

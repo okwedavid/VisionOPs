@@ -90,8 +90,8 @@ Copy `.env.example` → `.env`. **Never commit `.env`.** Every variable has a wo
 | --- | --- | --- |
 | `VISIONOPS_API_KEY` | — | Bootstrap key, used **only** when the organisation has no keys. Hash it, then remove it from the environment |
 | `VISIONOPS_MASTER_KEY` | — | **Required to store camera credentials.** 32-byte base64 key. Losing it makes stored credentials unrecoverable by design |
-| `VISIONOPS_TRUSTED_PROXIES` | — | Comma-separated IPs/CIDRs whose `X-Forwarded-For` is trusted for audit and rate limiting. **Set this only with a proxy you control** |
-| `VISIONOPS_CORS_ORIGINS` | — | Empty (same-origin only). Comma-separated to enable |
+| `VISIONOPS_TRUSTED_PROXIES` | — | IPs/CIDRs whose `X-Forwarded-For` is trusted for audit and rate limiting. Empty, a JSON array, or comma-separated. **Set this only with a proxy you control** |
+| `VISIONOPS_CORS_ORIGINS` | — | Empty (same-origin only), a JSON array, or comma-separated. Any non-empty value is an explicit allow-list; wildcards are never implied |
 | `VISIONOPS_RATE_LIMIT_RPS` | `10` | Per API key, burst `3×` |
 | `VISIONOPS_AUTH_FAILURE_LIMIT` | `10/min` | Tighter bucket for repeated bad keys |
 | `VISIONOPS_MAX_BODY_BYTES` | `1048576` | |

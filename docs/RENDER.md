@@ -25,7 +25,8 @@ The FastAPI app already serves the compiled SPA itself when
 4. bakes the pinned YOLO weights to `/app/models/yolo11n.onnx`.
 
 The browser talks to `/api/v1` and the WebSocket on the **same host**, so there
-is nothing cross-origin to configure and `VISIONOPS_CORS_ORIGINS` stays empty.
+is nothing cross-origin to configure and `VISIONOPS_CORS_ORIGINS` is the empty
+JSON array (`[]`), so the allow-list stays closed.
 
 ```
                     Render HTTPS (onrender.com)

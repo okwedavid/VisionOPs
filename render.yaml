@@ -62,8 +62,9 @@ services:
         value: 634279b40c07c6391472c51ad45b81ebc48706a9a1fe72dd3396322acd0c053b
 
       # Same-origin SPA + API: no cross-origin requests to allow.
+      # Must be valid JSON; an empty array keeps the allow-list closed.
       - key: VISIONOPS_CORS_ORIGINS
-        value: ""
+        value: "[]"
 
       # -- secrets (set in the dashboard; see docs/RENDER.md) -------------
       # Must be a valid `vo_<12-hex>_<secret>` key or startup bootstrap will
