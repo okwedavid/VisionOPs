@@ -189,7 +189,7 @@ test.describe('Live session', () => {
 })
 
 test.describe('Browser webcam', () => {
-  test('a browser source can be started and accepts pushed frames', async ({ page, signIn, apiKey }) => {
+  test('the Start button opens the camera and the page pushes frames', async ({ page, signIn, apiKey }) => {
     const headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }
     const unique = `webcam-${Math.random().toString(36).slice(2, 10)}`
     const site = await page.request.post('/api/v1/sites', { headers, data: { name: `Webcam ${unique}` } })
@@ -203,76 +203,20 @@ test.describe('Browser webcam', () => {
       headers,
       data: { name: `webcam-${unique}`, kind: 'browser', target: 'browser' },
     })
-    const sourceId = (await source.json()).id
+    expect(source.status(), await source.text()).toBe(201)
 
     await signIn()
     await page.goto(`/cameras/${cameraId}`)
 
-    const ingestUrl = await page.evaluate(
-      async ({ cam, src }) => {
-        const response = await fetch(`/api/v1/cameras/${cam}/session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': window.sessionStorage.getItem('visionops.apiKey') ?? '',
-          },
-          body: JSON.stringify({ source_id: src }),
-        })
-        const body = await response.json()
-        return (body as { ingest_ws_url?: string }).ingest_ws_url ?? null
-      },
-      { cam: cameraId, src: sourceId },
-    )
-    expect(ingestUrl, 'the session must tell the page where to push frames').toBeTruthy()
+    // The real path: click Start, let the page call getUserMedia (Chromium's fake
+    // capture device), encode canvas frames and push them over the ingest socket.
+    const start = page.getByRole('button', { name: /start session/i })
+    await expect(start).toBeEnabled()
+    await start.click()
 
-    const result = await page.evaluate(
-      async ({ url, key }) =>
-        new Promise<{ connected: boolean; pushed: number; error?: string }>((resolve) => {
-          const separator = url.includes('?') ? '&' : '?'
-          const socket = new WebSocket(`${url}${separator}key=${encodeURIComponent(key)}`)
-          let pushed = 0
-          const done = (value: { connected: boolean; pushed: number; error?: string }) => {
-            try {
-              socket.close()
-            } catch {
-              /* already closed */
-            }
-            resolve(value)
-          }
-          socket.onopen = () => {
-            socket.binaryType = 'arraybuffer'
-            const canvas = document.createElement('canvas')
-            canvas.width = 320
-            canvas.height = 240
-            const context = canvas.getContext('2d')
-            if (!context) return done({ connected: true, pushed, error: 'no 2d context' })
-            let frame = 0
-            const timer = window.setInterval(() => {
-              frame += 1
-              context.fillStyle = '#123'
-              context.fillRect(0, 0, canvas.width, canvas.height)
-              context.fillStyle = '#f80'
-              context.fillRect(frame * 8, 80, 40, 90)
-              canvas.toBlob((blob) => {
-                if (!blob) return
-                socket.send(blob.arrayBuffer())
-                pushed += 1
-                if (pushed >= 10) {
-                  window.clearInterval(timer)
-                  done({ connected: true, pushed })
-                }
-              }, 'image/jpeg', 0.7)
-            }, 60)
-          }
-          socket.onerror = () => done({ connected: false, pushed, error: 'socket errored' })
-          socket.onclose = () => done({ connected: false, pushed, error: 'socket closed early' })
-          window.setTimeout(() => done({ connected: true, pushed, error: 'timed out' }), 20_000)
-        }),
-      { url: ingestUrl as string, key: apiKey },
-    )
-
-    expect(result.connected, result.error).toBe(true)
-    expect(result.pushed).toBeGreaterThan(0)
+    await expect(page.getByRole('button', { name: /stop session/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText(/frames sent/i)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByLabel('Webcam preview')).toBeVisible()
 
     await expect
       .poll(
@@ -281,7 +225,7 @@ test.describe('Browser webcam', () => {
           const body = await state.json()
           return Number(body.frames_processed ?? 0)
         },
-        { timeout: 30_000, message: 'frames pushed from the browser were never processed' },
+        { timeout: 30_000, message: 'frames pushed by the page were never processed' },
       )
       .toBeGreaterThan(0)
 

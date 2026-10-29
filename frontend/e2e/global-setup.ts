@@ -28,7 +28,10 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   rmSync(dataDir, { recursive: true, force: true })
   mkdirSync(dataDir, { recursive: true })
 
-  const python = join(REPO_ROOT, '.venv', 'bin', 'python')
+  const python =
+    process.platform === 'win32'
+      ? join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
+      : join(REPO_ROOT, '.venv', 'bin', 'python')
   if (!existsSync(python)) {
     throw new Error(`${python} not found — run \`make install\` before the e2e suite`)
   }

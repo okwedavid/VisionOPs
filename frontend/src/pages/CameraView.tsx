@@ -149,9 +149,11 @@ function CameraWorkspace({
 
   const live = useLiveSession(sessionId)
   const webcam = useWebcam()
+  const { start: startWebcam, deliver: deliverFrames, stop: stopWebcam } = webcam
 
   const session = status.data?.sessions.items.find((item) => item.camera_id === cameraId)
   const source = sources.data?.find((item) => item.is_primary) ?? sources.data?.[0]
+  const sourceId = source?.id
   const isRunning = Boolean(session) && session?.state !== 'stopped'
   const isBrowserSource = source?.kind === 'browser'
   const modelReady = (status.data?.model.state ?? 'unknown') === 'ready'
@@ -161,54 +163,89 @@ function CameraWorkspace({
     if (session && session.session_id !== sessionId) setSessionId(session.session_id)
   }, [session, sessionId])
 
-  // Browser source: open the camera and start delivering frames.
+  // Browser source: adopt a session started elsewhere (or from a previous page)
+  // and keep its camera/ingest socket alive. The system-status payload does not
+  // contain ingest_ws_url, so derive it from the session id instead of waiting
+  // for a field the backend never sends.
   useEffect(() => {
-    if (!isRunning || !isBrowserSource || !session?.ingest_ws_url) return
+    if (!isRunning || !isBrowserSource || !session?.session_id) return
     let cancelled = false
-    ;(async () => {
-      const ok = await webcam.start()
+    const sessionIdForFrames = session.session_id
+    const targetFps = session.target_fps
+
+    void (async () => {
+      const ok = await startWebcam()
       if (!ok || cancelled) return
-      if (webcam.videoRef.current) {
-        await webcam.videoRef.current.play().catch(() => undefined)
-      }
-      webcam.deliver(ingestSocketUrl(session.session_id, session.target_fps, getApiKey()), session.target_fps)
+      deliverFrames(ingestSocketUrl(sessionIdForFrames, targetFps, getApiKey()), targetFps)
     })()
+
     return () => {
       cancelled = true
-      webcam.stop()
+      stopWebcam()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, isBrowserSource, session?.session_id])
+  }, [isRunning, isBrowserSource, session?.session_id, session?.target_fps, startWebcam, deliverFrames, stopWebcam])
 
   const start = useCallback(async () => {
     setBusy(true)
     setSessionError(null)
     try {
-      const info = await startSession.mutateAsync({ cameraId })
+      if (!sourceId) {
+        setSessionError('This camera has no video source. Add a source before starting a session.')
+        return
+      }
+
+      // Keep getUserMedia inside the click handler. Starting the camera after an
+      // awaited HTTP request loses the user gesture some browsers require.
+      if (isBrowserSource) {
+        const cameraReady = await startWebcam()
+        if (!cameraReady) {
+          onToast({
+            tone: 'crit',
+            title: 'Camera could not start',
+            detail: 'See the camera message above the video for what to fix.',
+          })
+          return
+        }
+      }
+
+      const info = await startSession.mutateAsync({ cameraId, body: { source_id: sourceId } })
       setSessionId(info.session_id)
+      if (isBrowserSource) {
+        deliverFrames(ingestSocketUrl(info.session_id, info.target_fps, getApiKey()), info.target_fps)
+      }
       onToast({ tone: 'ok', title: 'Session started', detail: `${info.camera_name} · ${info.source_kind} source` })
     } catch (error) {
+      stopWebcam()
       const message = (error as Error).message
       setSessionError(message)
       onToast({ tone: 'crit', title: 'Could not start the session', detail: message })
     } finally {
       setBusy(false)
     }
-  }, [cameraId, onToast, startSession])
+  }, [
+    cameraId,
+    deliverFrames,
+    isBrowserSource,
+    onToast,
+    sourceId,
+    startSession,
+    startWebcam,
+    stopWebcam,
+  ])
 
   const stop = useCallback(async () => {
     setBusy(true)
     try {
       await stopSession.mutateAsync(cameraId)
       setSessionId(null)
-      webcam.stop()
+      stopWebcam()
       onToast({ tone: 'info', title: 'Session stopped' })
     } catch (error) {
       onToast({ tone: 'crit', title: 'Could not stop the session', detail: (error as Error).message })
     } finally {
       setBusy(false)
     }
-  }, [cameraId, onToast, stopSession, webcam])
+  }, [cameraId, onToast, stopSession, stopWebcam])
 
   const saveZone = useCallback(
     async (input: { name: string; polygon: NormalizedPolygon; color: string; severity: ZoneSeverity }) => {
@@ -269,6 +306,16 @@ function CameraWorkspace({
       <div className="space-y-4">
         {sessionError && <Banner tone="crit" title="Could not start">{sessionError}</Banner>}
 
+        {isBrowserSource && webcam.error && webcam.state !== 'live' && (
+          <Banner
+            tone={webcam.state === 'denied' ? 'warn' : 'crit'}
+            title="Camera could not start"
+            role="alert"
+          >
+            {webcam.error}
+          </Banner>
+        )}
+
         {session && session.state === 'degraded' && (
           <Banner tone="warn" title={`Source ${session.state}`} actions={<Button onClick={() => void start()}>Retry</Button>}>
             {reasonSentence(session.reason_code, session.detail)}
@@ -294,7 +341,13 @@ function CameraWorkspace({
 
         <Card padded={false} className="overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-            <Button variant={isRunning ? 'secondary' : 'primary'} onClick={() => (isRunning ? void stop() : void start())} loading={busy}>
+            <Button
+              variant={isRunning ? 'secondary' : 'primary'}
+              onClick={() => (isRunning ? void stop() : void start())}
+              loading={busy}
+              disabled={!sourceId && !isRunning}
+              title={!sourceId && !isRunning ? 'Add a video source before starting a session' : undefined}
+            >
               {isRunning ? 'Stop session' : 'Start session'}
             </Button>
             <Button
@@ -331,6 +384,7 @@ function CameraWorkspace({
             onDraftChange={setDraft}
             webcamState={webcam.state}
             webcamError={webcam.error}
+            uploadError={webcam.uploadError}
             sentFrames={webcam.sentFrames}
           />
 
@@ -531,6 +585,7 @@ function VideoStage({
   onDraftChange,
   webcamState,
   webcamError,
+  uploadError,
   sentFrames,
 }: {
   isBrowser: boolean
@@ -544,6 +599,7 @@ function VideoStage({
   onDraftChange: (polygon: NormalizedPolygon | null) => void
   webcamState: string
   webcamError: string | null
+  uploadError: string | null
   sentFrames: number
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -626,6 +682,16 @@ function VideoStage({
         <div className="absolute inset-x-0 bottom-0 bg-bg/90 p-3 text-xs text-warn">
           {webcamError ?? 'Starting the camera…'}
         </div>
+      )}
+
+      {isBrowser && isRunning && webcamState === 'live' && uploadError && (
+        <div className="absolute inset-x-0 bottom-0 bg-bg/90 p-3 text-xs text-warn">{uploadError}</div>
+      )}
+
+      {isBrowser && (
+        <span className="absolute right-2 top-2 rounded bg-bg/70 px-1.5 py-0.5 text-[10px] text-ink-2">
+          local preview{isRunning ? ' · AI overlay' : ''}
+        </span>
       )}
 
       {isBrowser && isRunning && sentFrames > 0 && (

@@ -17,8 +17,29 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
       // Already exited; nothing to do.
     }
   }
+  // Windows keeps the SQLite file locked for a moment after the child dies, so
+  // deleting immediately makes an otherwise green run fail in teardown.
+  await waitForExit(pid)
   const { rmSync } = await import('node:fs')
-  rmSync(dataDir, { recursive: true, force: true })
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(dataDir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt >= 50) throw error
+      await delay(100)
+    }
+  }
+}
+
+async function waitForExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 50 && !alreadyGone(pid); attempt += 1) {
+    await delay(100)
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function alreadyGone(pid: number): boolean {
