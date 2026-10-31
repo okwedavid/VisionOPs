@@ -6,6 +6,8 @@ import { HealthBadge } from './components/HealthBadge'
 import { reasonSentence, seconds } from './lib/format'
 import { clearApiKey, getApiKey } from './lib/api'
 import { useSystemStatus } from './hooks/useApi'
+import { Onboarding } from './features/onboarding/Onboarding'
+import { restartOnboarding } from './features/onboarding/session'
 
 /** Catches render errors and shows a readable panel — never a blank page. */
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -111,6 +113,7 @@ export function AppLayout() {
             {hasKey ? (
               <>
                 <HealthBadge />
+                <Button variant="ghost" onClick={restartOnboarding} title="Restart the guided tour">Help</Button>
                 {active > 0 && (
                   <Badge className="border-border bg-surface-2 text-ink-2" title="Active processing sessions">
                     {active} live
@@ -135,6 +138,8 @@ export function AppLayout() {
       <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 outline-none sm:px-5 sm:py-6">
         <Outlet />
       </main>
+
+      <Onboarding />
 
       <footer className="border-t border-border px-3 py-3 text-center text-[11px] text-ink-3 sm:px-5">
         VisionOps analyses objects in zones — never identities. No facial recognition, no biometrics, no

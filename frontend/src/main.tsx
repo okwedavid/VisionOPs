@@ -7,6 +7,7 @@ import './index.css'
 import { AppLayout, ErrorBoundary } from './App'
 import { Dashboard } from './pages/Dashboard'
 import { CameraView } from './pages/CameraView'
+import { Demo } from './pages/Demo'
 import { Events } from './pages/Events'
 import { EventDetail } from './pages/EventDetail'
 import { Zones } from './pages/Zones'
@@ -41,6 +42,7 @@ const router = createBrowserRouter(
     <Route element={<AppLayout />}>
       <Route path="/" element={<Dashboard />} />
       <Route path="/setup" element={<Setup />} />
+      <Route path="/demo" element={<Demo />} />
       <Route path="/cameras" element={<CameraView />} />
       <Route path="/cameras/:cameraId" element={<CameraView />} />
       <Route path="/zones" element={<Zones />} />

@@ -341,7 +341,7 @@ export function Setup() {
 
       <Card title="Prefer the command line?">
         <p className="text-sm text-ink-2">
-          One command seeds a complete demo wired to the bundled synthetic fixture video — no camera, no model
+          One command seeds a demo wired to the bundled synthetic fixture video — no camera required. The fixture demonstrates plumbing, not detection accuracy.
           download, no network:
         </p>
         <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-3 text-xs text-ink-2">make demo &amp;&amp; make dev</pre>

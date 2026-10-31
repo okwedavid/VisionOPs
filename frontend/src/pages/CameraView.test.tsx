@@ -61,6 +61,7 @@ vi.mock('@/hooks/useApi', () => ({
   }),
   useZones: () => ({ data: [] }),
   useSystemStatus: () => ({ data: mocks.status() }),
+  useModelInfo: () => ({ data: { state: 'ready', classes: ['person', 'bicycle', 'car'] } }),
   useStartSession: () => ({ mutateAsync: mocks.startSession, isPending: false }),
   useStopSession: () => ({ mutateAsync: mocks.stopSession, isPending: false }),
   useCreateZone: () => ({ mutateAsync: vi.fn(), isPending: false }),

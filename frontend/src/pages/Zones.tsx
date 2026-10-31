@@ -30,7 +30,7 @@ export function Zones() {
   const rows = zones.data ?? []
 
   return (
-    <div className="space-y-4">
+    <div data-tour="zones-page" className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Zones</h1>

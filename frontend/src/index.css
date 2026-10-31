@@ -56,6 +56,15 @@
     border-radius: 3px;
   }
 
+  .tour-highlight {
+    position: relative;
+    z-index: 51;
+    outline: 3px solid var(--color-accent);
+    outline-offset: 4px;
+    border-radius: 8px;
+    box-shadow: 0 0 0 6px rgb(56 189 248 / 16%);
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

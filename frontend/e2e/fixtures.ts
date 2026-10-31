@@ -28,6 +28,8 @@ export const test = base.extend<{
       await field.fill(apiKey)
       await page.getByRole('button', { name: /^connect$/i }).click()
       await expect(page.getByRole('navigation', { name: /main/i })).toBeVisible()
+      const explore = page.getByRole('button', { name: /explore dashboard/i })
+      if (await explore.isVisible().catch(() => false)) await explore.click()
     })
   },
 

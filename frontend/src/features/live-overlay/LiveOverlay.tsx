@@ -211,7 +211,7 @@ export function LiveOverlay({
           track.box,
           width,
           height,
-          `#${track.id} ${(track.confidence * 100).toFixed(0)}%`,
+          `${track.label} · #${track.id} · ${(track.confidence * 100).toFixed(0)}%`,
           selected ? '#22c55e' : color,
           dpr,
         )

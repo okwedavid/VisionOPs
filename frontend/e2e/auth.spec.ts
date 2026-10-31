@@ -118,6 +118,7 @@ test.describe('Navigation', () => {
       ['/cameras', /cameras?/i],
       ['/zones', /^zones$/i],
       ['/events', /^events$/i],
+      ['/demo', /how a camera becomes an event/i],
       ['/system', /system status/i],
     ] as const) {
       await page.goto(path)
@@ -140,5 +141,31 @@ test.describe('Navigation', () => {
     await expect(page.getByRole('heading', { name: /event/i }).first()).toBeVisible()
 
     expect(await page.evaluate(() => (window as never as { __navigationMarker?: string }).__navigationMarker)).toBe('kept')
+  })
+})
+
+test.describe('Guided onboarding', () => {
+  test('resumes after refresh, can be skipped, and appears in a new tab session', async ({ page, apiKey }) => {
+    await page.goto('/')
+    await page.getByLabel(/api key/i).fill(apiKey)
+    await page.getByRole('button', { name: /^connect$/i }).click()
+    await expect(page.getByRole('heading', { name: /camera footage, turned into actionable intelligence/i })).toBeVisible()
+    await page.getByRole('button', { name: /start guided demo/i }).click()
+    await expect(page.getByRole('progressbar', { name: 'Tour progress' })).toHaveAttribute('aria-valuenow', '1')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page).toHaveURL(/\/cameras$/)
+    await expect(page.getByRole('progressbar', { name: 'Tour progress' })).toHaveAttribute('aria-valuenow', '2')
+
+    await page.reload()
+    await expect(page).toHaveURL(/\/cameras$/)
+    await expect(page.getByRole('progressbar', { name: 'Tour progress' })).toHaveAttribute('aria-valuenow', '2')
+    await page.getByRole('button', { name: 'Skip tour' }).click()
+    await expect(page.getByRole('progressbar', { name: 'Tour progress' })).toBeHidden()
+
+    const freshTab = await page.context().newPage()
+    await freshTab.addInitScript((key) => sessionStorage.setItem('visionops.apiKey', key), apiKey)
+    await freshTab.goto('/')
+    await expect(freshTab.getByRole('heading', { name: /camera footage, turned into actionable intelligence/i })).toBeVisible()
+    await freshTab.close()
   })
 })

@@ -48,7 +48,7 @@ export function Events() {
   const hasFilters = Boolean(filters.camera_id || filters.type || filters.severity || filters.since || filters.q)
 
   return (
-    <div className="space-y-4">
+    <div data-tour="events-page" className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Events</h1>

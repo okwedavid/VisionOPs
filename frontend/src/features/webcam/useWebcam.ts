@@ -129,6 +129,7 @@ export function useWebcam(): UseWebcamResult {
   const generationRef = useRef(0)
   const startPromiseRef = useRef<Promise<boolean> | null>(null)
   const stoppedRef = useRef(true)
+  const capturePendingRef = useRef(false)
 
   const [state, setState] = useState<WebcamState>('idle')
   const [uploadState, setUploadState] = useState<WebcamUploadState>('idle')
@@ -289,6 +290,10 @@ export function useWebcam(): UseWebcamResult {
         const socket = socketRef.current
         if (!video || !socket || socket.readyState !== WebSocket.OPEN) return
         if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return
+        // Keep at most one canvas encode/send in flight. A slow encoder or
+        // congested socket must never turn the interval into an unbounded queue.
+        if (capturePendingRef.current || socket.bufferedAmount > 2 * 1024 * 1024) return
+        capturePendingRef.current = true
 
         const canvas = (canvasRef.current ??= document.createElement('canvas'))
         // Cap the capture size: the model input is far smaller, and the network
@@ -300,24 +305,33 @@ export function useWebcam(): UseWebcamResult {
         if (canvas.width !== width) canvas.width = width
         if (canvas.height !== height) canvas.height = height
         const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) return
-            const socketNow = socketRef.current
-            if (socketNow !== socket || socketNow.readyState !== WebSocket.OPEN) return
-            try {
-              socketNow.send(blob)
-              setSentFrames((count) => count + 1)
-            } catch {
-              setUploadError(SOCKET_HELP)
-            }
-          },
-          'image/jpeg',
-          0.7,
-        )
+        if (!ctx) {
+          capturePendingRef.current = false
+          return
+        }
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          canvas.toBlob(
+            (blob) => {
+              try {
+                if (!blob) return
+                const socketNow = socketRef.current
+                if (socketNow !== socket || socketNow.readyState !== WebSocket.OPEN) return
+                socketNow.send(blob)
+                setSentFrames((count) => count + 1)
+              } catch {
+                setUploadError(SOCKET_HELP)
+              } finally {
+                capturePendingRef.current = false
+              }
+            },
+            'image/jpeg',
+            0.7,
+          )
+        } catch {
+          capturePendingRef.current = false
+          setUploadError(SOCKET_HELP)
+        }
       }
 
       const startTimer = () => {

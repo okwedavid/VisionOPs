@@ -22,6 +22,7 @@ import {
   useCreateZone,
   useDeleteZone,
   useLiveSession,
+  useModelInfo,
   useSources,
   useStartSession,
   useStopSession,
@@ -31,6 +32,8 @@ import {
 } from '@/hooks/useApi'
 import type { NormalizedPolygon, Zone, ZoneSeverity } from '@/types/api'
 import { cx } from '@/lib/cx'
+import { interpretTrack, modelClassId } from '@/lib/interpretation'
+import type { LiveTrack, LiveZone } from '@/types/api'
 
 const ZONE_COLORS = ['#f97316', '#22c55e', '#3b82f6', '#ef4444', '#a855f7', '#eab308']
 
@@ -69,6 +72,7 @@ export function CameraView() {
             unusable by a screen reader, and this is the very first screen a
             new operator sees. */}
         <h1 className="text-xl font-semibold tracking-tight">Cameras</h1>
+        <div data-tour="camera-workspace">
         <EmptyState
           title="No cameras yet"
           icon="🎥"
@@ -81,6 +85,13 @@ export function CameraView() {
           VisionOps needs one camera to start. The wizard creates a site, a camera and its first video source
           in about a minute.
         </EmptyState>
+        </div>
+        <div data-tour="camera-video" className="rounded-lg border border-border bg-black/30 p-6 text-center text-sm text-ink-2">
+          A live preview appears here after a camera source is configured and a session starts.
+        </div>
+        <div data-tour="object-details"><Card title="Live detections" subtitle="Available after a camera session starts">
+          Server-confirmed objects, confidence values, model class IDs and temporary track references appear here. No sample detections are presented as live data.
+        </Card></div>
       </div>
     )
   }
@@ -134,6 +145,7 @@ function CameraWorkspace({
   const sources = useSources(cameraId)
   const zones = useZones(cameraId)
   const status = useSystemStatus()
+  const modelInfo = useModelInfo()
   const startSession = useStartSession()
   const stopSession = useStopSession()
   const createZone = useCreateZone()
@@ -145,6 +157,8 @@ function CameraWorkspace({
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<NormalizedPolygon | null>(null)
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null)
+  const [trackObservations, setTrackObservations] = useState<Record<number, { track: LiveTrack; first: number; last: number }>>({})
   const [zoneModal, setZoneModal] = useState<{ mode: 'create'; polygon: NormalizedPolygon } | { mode: 'edit'; zone: Zone } | null>(null)
 
   const live = useLiveSession(sessionId)
@@ -296,6 +310,33 @@ function CameraWorkspace({
   const liveEvents = live.events
   const totalInZone = Object.values(live.state?.stats.in_zone ?? session?.in_zone ?? {}).reduce((a, b) => a + b, 0)
 
+  useEffect(() => {
+    setSelectedTrackId(null)
+    setTrackObservations({})
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!live.state) return
+    const observedAt = live.state.server_time * 1000
+    setTrackObservations((current) => {
+      const next = { ...current }
+      for (const track of live.state!.tracks) {
+        const previous = next[track.id]
+        next[track.id] = { track, first: previous?.first ?? observedAt, last: observedAt }
+      }
+      const ids = Object.keys(next)
+      for (const id of ids.slice(0, Math.max(0, ids.length - 100))) delete next[Number(id)]
+      return next
+    })
+  }, [live.state, live.lastMessageAt])
+
+  const selectedObservation = selectedTrackId === null ? undefined : trackObservations[selectedTrackId]
+  const selectedTrack = live.state?.tracks.find((track) => track.id === selectedTrackId) ?? selectedObservation?.track
+  const selectedInterpretation = selectedTrack
+    ? interpretTrack(selectedTrack, (live.state?.zones ?? []) as LiveZone[], live.events, camera.data?.name ?? 'camera')
+    : null
+  const classIdFor = (label: string) => modelClassId(modelInfo.data?.classes, label)
+
   if (camera.isLoading) return <Loading label="Loading camera…" />
   if (!camera.data) {
     return <EmptyState title="Camera not found" action={<Link to="/cameras" className="btn-secondary">All cameras</Link>} />
@@ -303,7 +344,7 @@ function CameraWorkspace({
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="space-y-4">
+      <div data-tour="camera-workspace" className="space-y-4">
         {sessionError && <Banner tone="crit" title="Could not start">{sessionError}</Banner>}
 
         {isBrowserSource && webcam.error && webcam.state !== 'live' && (
@@ -386,6 +427,16 @@ function CameraWorkspace({
             webcamError={webcam.error}
             uploadError={webcam.uploadError}
             sentFrames={webcam.sentFrames}
+            uploadState={webcam.uploadState}
+            connection={live.connection}
+            aiState={live.state
+              ? live.state.ai.state === 'ready' && live.state.stats.frames_processed > 0
+                ? 'active'
+                : live.state.ai.state === 'ready' ? 'waiting for first frame' : live.state.ai.state
+              : session?.state === 'running' ? 'waiting for server state' : 'inactive'}
+            lastUpdate={live.lastMessageAt}
+            selectedTrackId={selectedTrackId}
+            dataTour="camera-video"
           />
 
           {editing && (
@@ -432,6 +483,39 @@ function CameraWorkspace({
       </div>
 
       <div className="space-y-4">
+        <div data-tour="object-details">
+        <Card title="Live detections" subtitle={live.state ? `${live.state.tracks.length} current track(s) · references end with this session` : 'Waiting for server-confirmed inference'} padded={false}>
+          {live.state?.tracks.length ? (
+            <ul className="max-h-48 divide-y divide-border overflow-y-auto">
+              {live.state.tracks.map((track) => (
+                <li key={track.id}>
+                  <button type="button" className={`w-full px-3 py-2 text-left hover:bg-surface-2 ${selectedTrackId === track.id ? 'bg-surface-2' : ''}`} onClick={() => setSelectedTrackId(track.id)}>
+                    <span className="flex items-center justify-between gap-2 text-sm"><span className="font-medium">{track.label} · Track #{track.id}</span><span className="tnum text-ink-2">{(track.confidence * 100).toFixed(0)}%</span></span>
+                    <span className="mt-0.5 block text-xs text-ink-3">Class ID {classIdFor(track.label) ?? 'unavailable'} · seen {track.age} frame(s)</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="px-3 py-4 text-sm text-ink-3">{live.state?.ai.state === 'ready' ? 'No objects in the latest server inference result.' : 'Start a camera session to receive actual detections.'}</p>}
+          {selectedTrack && selectedInterpretation && (
+            <div className="border-t border-border p-3">
+              <h3 className="text-sm font-semibold">{selectedTrack.label} · Track #{selectedTrack.id}</h3>
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                <Metric label="Confidence" value={`${(selectedTrack.confidence * 100).toFixed(1)}%`} />
+                <Metric label="Model class ID" value={String(classIdFor(selectedTrack.label) ?? 'unavailable')} />
+                <Metric label="Camera" value={camera.data.name} />
+                <Metric label="Zone" value={selectedInterpretation.zone?.name ?? selectedInterpretation.status} />
+                <Metric label="First observed here" value={selectedObservation ? new Date(selectedObservation.first).toLocaleTimeString() : 'current view'} />
+                <Metric label="Last observed here" value={selectedObservation ? new Date(selectedObservation.last).toLocaleTimeString() : 'current view'} />
+              </dl>
+              <p className="mt-3 text-xs leading-5 text-ink-2">{selectedInterpretation.explanation}</p>
+              <p className="mt-2 text-[11px] text-ink-3">Track references are anonymous and temporary. Observation times are held only in this browser view.</p>
+              {live.events.filter((event) => event.track_id === selectedTrack.id).map((event, index) => <p key={event.id ?? `${event.type}-${index}`} className="mt-2 text-xs text-warn">{event.type.replace(/_/g, ' ').toLowerCase()} · {event.zone_name ?? 'zone'} · {relativeTime(new Date(event.occurred_at * 1000))}</p>)}
+              <p className="mt-2 break-all text-[11px] text-ink-3">Box: [{selectedTrack.box.map((value) => value.toFixed(3)).join(', ')}] · normalized frame coordinates</p>
+            </div>
+          )}
+        </Card>
+        </div>
         <Card title="Session">
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
             <Metric label="State" value={isRunning ? (session?.state ?? '—') : 'stopped'} />
@@ -587,6 +671,12 @@ function VideoStage({
   webcamError,
   uploadError,
   sentFrames,
+  uploadState,
+  connection,
+  aiState,
+  lastUpdate,
+  selectedTrackId,
+  dataTour,
 }: {
   isBrowser: boolean
   isRunning: boolean
@@ -601,6 +691,12 @@ function VideoStage({
   webcamError: string | null
   uploadError: string | null
   sentFrames: number
+  uploadState: string
+  connection: string
+  aiState: string
+  lastUpdate: number | null
+  selectedTrackId: number | null
+  dataTour: string
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const dragStart = useRef<{ x: number; y: number } | null>(null)
@@ -639,6 +735,7 @@ function VideoStage({
   return (
     <div
       ref={stageRef}
+      data-tour={dataTour}
       className={cx('relative aspect-video w-full overflow-hidden bg-black', editing && 'cursor-crosshair')}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -665,6 +762,7 @@ function VideoStage({
           fallbackZones={fallbackZones}
           editing={editing}
           draft={draft}
+          selectedTrackId={selectedTrackId}
         />
       )}
 
@@ -689,9 +787,13 @@ function VideoStage({
       )}
 
       {isBrowser && (
-        <span className="absolute right-2 top-2 rounded bg-bg/70 px-1.5 py-0.5 text-[10px] text-ink-2">
-          local preview{isRunning ? ' · AI overlay' : ''}
-        </span>
+        <div className="absolute right-2 top-2 flex flex-wrap justify-end gap-1 rounded bg-bg/85 p-1.5 text-[10px] text-ink-2" aria-live="polite">
+          <span className="rounded bg-surface-2 px-1.5 py-0.5">Local preview: {webcamState === 'live' ? 'active' : 'inactive'}</span>
+          <span className="rounded bg-surface-2 px-1.5 py-0.5">Frames: {uploadState === 'open' ? sentFrames > 0 ? 'transmitting' : 'connected · waiting' : uploadState}</span>
+          <span className="rounded bg-surface-2 px-1.5 py-0.5">Backend inference: {aiState}</span>
+          <span className="rounded bg-surface-2 px-1.5 py-0.5">Live updates: {connection}</span>
+          {lastUpdate !== null && <span className="rounded bg-surface-2 px-1.5 py-0.5">Updated {relativeTime(new Date(lastUpdate))}</span>}
+        </div>
       )}
 
       {isBrowser && isRunning && sentFrames > 0 && (

@@ -99,6 +99,14 @@ Dark, dense, calm. Operators watch these screens for hours, so: dark background 
 
 Components (`components/ui/`): `Button`, `Card`, `Badge`, `StatCard`, `Table`, `Modal`, `Field`, `Select`, `Toggle`, `EmptyState`, `Banner`, `Spinner`, `RelativeTime`, `ConfidenceBar`. `StatCard` is the workhorse: label, big value, delta, state colour, sparkline slot.
 
+### First-run guide and object details
+
+The authenticated app shows a concise welcome and a seven-step tour once per browser tab session. Completion and skip state live in `sessionStorage`; closing the tab starts a new guide session. The Help control clears that state and restarts the guide. Tour targets are attached to implemented dashboard, camera, zone, event, and summary UI. If no camera exists yet, the camera page explains the missing setup instead of drawing sample detections.
+
+The dashboard links to an illustrative sample scenario and separately to camera/fixture setup. The sample page marks every value as DEMO and does not write sample detections or events to the event history. The bundled fixture is synthetic and demonstrates source and pipeline plumbing only; it is not evidence of detection accuracy. Live object details are derived from the active WebSocket state and the model's own class-name list. Track references and first/last observation times are ephemeral to that processing session and browser view. They are not identities or durable histories.
+
+The browser webcam HUD reports local preview, frame-socket delivery, server inference state, live-state connection, and last server update independently. Frame encoding is limited to one in-flight JPEG; when the socket has more than 2 MiB queued, the next capture is skipped until it drains.
+
 ---
 
 ## 4. State management

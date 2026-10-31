@@ -61,6 +61,19 @@ export function Dashboard() {
         </div>
       </header>
 
+      <Card className="border-accent/30 bg-gradient-to-r from-accent/10 to-surface" padded>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Try the guided demo</p>
+            <p className="mt-1 text-sm text-ink-2">Explore an illustrative, clearly labelled sample; then connect a real camera or configure the synthetic fixture.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/demo" className="btn-primary">View demo scenario</Link>
+            <Link to="/setup" className="btn-secondary">Set up a camera or fixture</Link>
+          </div>
+        </div>
+      </Card>
+
       {degraded.length > 0 && (
         <Card title="Needs attention" padded>
           <ul className="space-y-2">
@@ -80,7 +93,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div data-tour="dashboard-status" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard
           label="Cameras"
           value={cameras.data?.length ?? 0}
@@ -117,7 +130,7 @@ export function Dashboard() {
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div data-tour="dashboard-analytics" className="grid gap-4 xl:grid-cols-3">
         <Card
           className="xl:col-span-2"
           title="Live sessions"

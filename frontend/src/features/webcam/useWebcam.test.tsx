@@ -12,6 +12,7 @@ class FakeWebSocket {
 
   readonly url: string
   readyState = FakeWebSocket.CONNECTING
+  bufferedAmount = 0
   binaryType = 'blob'
   onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
@@ -165,6 +166,35 @@ describe('useWebcam', () => {
     })
 
     expect(FakeWebSocket.instances).toHaveLength(1)
+    unmount()
+  })
+
+  it('keeps JPEG encoding bounded and pauses while the socket send queue is congested', async () => {
+    const media = fakeMedia()
+    getUserMedia.mockResolvedValue(media.stream)
+    const callbacks: BlobCallback[] = []
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callbacks.push(callback)
+    })
+    const { result, unmount } = renderHook(() => useWebcam())
+    attachVideo(result, makeVideo())
+    await act(async () => { await result.current.start() })
+    act(() => result.current.deliver('ws://example.test/ingest', 5))
+    const socket = FakeWebSocket.instances[0]!
+    act(() => socket.open())
+
+    await act(async () => { vi.advanceTimersByTime(800) })
+    expect(toBlob).toHaveBeenCalledTimes(1)
+    act(() => callbacks[0]!(new Blob(['frame'], { type: 'image/jpeg' })))
+    expect(socket.send).toHaveBeenCalledTimes(1)
+
+    socket.bufferedAmount = 3 * 1024 * 1024
+    await act(async () => { vi.advanceTimersByTime(600) })
+    expect(toBlob).toHaveBeenCalledTimes(1)
+    socket.bufferedAmount = 0
+    await act(async () => { vi.advanceTimersByTime(200) })
+    expect(toBlob).toHaveBeenCalledTimes(2)
+
     unmount()
   })
 
